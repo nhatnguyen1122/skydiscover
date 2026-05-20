@@ -1,0 +1,47 @@
+language: python
+diff_based_generation: true
+max_iterations: 50
+checkpoint_interval: 1
+max_solution_length: 20000
+
+llm:
+  api_base: "https://integrate.api.nvidia.com/v1"
+  api_key: ${NVIDIA_API_KEY}
+  models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  evaluator_models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  guide_models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  temperature: 0.2
+  max_tokens: 4096
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+
+prompt:
+  system_message: "You are an expert programmer specializing in optimization algorithms. Your task is to improve a function minimization algorithm to find the global minimum of a complex function with many local minima. The function is f(x, y) = sin(x) * cos(y) + sin(x*y) + (x^2 + y^2)/20. Focus on improving the search_algorithm function to reliably find the global minimum, escaping local minima that might trap simple algorithms."
+
+search:
+  type: adaevolve
+  num_context_programs: 3
+  database:
+    population_size: 50
+    archive_size: 20
+    num_islands: 3
+
+evaluator:
+  timeout: 60
+  cascade_evaluation: false
+
+monitor:
+  enabled: false

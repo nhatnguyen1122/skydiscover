@@ -57,6 +57,32 @@ conda run -n openevolve_test python -m skydiscover.cli benchmarks/math/signal_pr
 conda run -n openevolve_test python -m skydiscover.cli benchmarks/math/signal_processing/initial_program.py benchmarks/math/signal_processing/evaluator/evaluator.py --config benchmarks/math/signal_processing/config_nvidia.yaml --search evox --iterations 1 --output outputs/nvidia_smoke/signal_processing_evox
 ```
 
+## Multiple Runs
+
+Use the matrix runner for repeated independent runs:
+
+```bash
+conda run -n openevolve_test python scripts/run_nvidia_parity_matrix.py \
+  --runs 5 \
+  --benchmarks func,cp,sp,kmod \
+  --strategies adaevolve,evox \
+  --output-root outputs/nvidia_parity_5runs \
+  --resume
+```
+
+For a cheap wrapper smoke test:
+
+```bash
+conda run -n openevolve_test python scripts/run_nvidia_parity_matrix.py \
+  --runs 1 \
+  --benchmarks kmod \
+  --strategies adaevolve \
+  --iterations 0 \
+  --output-root outputs/nvidia_matrix_smoke
+```
+
+Each run writes `convergence.jsonl`; the matrix summary is appended to `results.jsonl` under the output root.
+
 ## Full Runs
 
 Omit `--iterations 1` to use the benchmark config budgets:
@@ -99,3 +125,4 @@ The NVIDIA configs set `checkpoint_interval: 1` so EvoX runs persist enough hist
 - `benchmarks/openevolve_parity/function_minimization/`
 - `benchmarks/openevolve_parity/k_module_problem/`
 - `scripts/export_convergence.py`
+- `scripts/run_nvidia_parity_matrix.py`

@@ -1,0 +1,39 @@
+language: python
+diff_based_generation: true
+max_iterations: 100
+checkpoint_interval: 10
+max_solution_length: 80000
+
+llm:
+  api_base: https://integrate.api.nvidia.com/v1
+  api_key: ${NVIDIA_API_KEY}
+  models:
+    - name: openai/gpt-oss-120b
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  temperature: 0.2
+  max_tokens: 4096
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+  max_total_tokens: 20000000
+
+prompt:
+  system_message: |-
+    Optimize CORAL examples/kernel_builder. The program must define
+    KernelBuilder.build_kernel(...). The true metric is cycles, lower is
+    better; combined_score = baseline_cycles / cycles is only a maximization
+    proxy for this framework. Correctness is mandatory.
+
+    Use the VLIW/SIMD machine efficiently: 12 alu, 6 valu, 2 load, 2 store,
+    and 1 flow slot per cycle. Focus on packing, vectorization, memory access,
+    loop unrolling, and dependency scheduling.
+  suggest_simplification_after_chars: 6000
+
+evaluator:
+  timeout: 180
+  max_retries: 1
+
+log_level: INFO
+random_seed: 42

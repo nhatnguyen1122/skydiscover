@@ -433,10 +433,6 @@ def evaluate(program_path):
             + 0.1 * success_rate  # Reliability
         )
 
-        # Gate: zero out score if accuracy is too low
-        if accuracy_score < 0.1:
-            overall_score = 0.0
-
         return {
             "combined_score": safe_float(overall_score),  # Primary selection metric for SkyDiscover
             "composite_score": safe_float(avg_composite_score),

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from export_convergence import export_convergence
+from export_convergence import _read_json, _score_from_metrics, export_convergence
 
 
 BENCHMARKS = {
@@ -20,6 +20,102 @@ BENCHMARKS = {
         "initial": "benchmarks/math/circle_packing/initial_program.py",
         "evaluator": "benchmarks/math/circle_packing/evaluator.py",
         "config": "benchmarks/math/circle_packing/config_nvidia.yaml",
+    },
+    "circle_packing_n32": {
+        "alias": "cp32",
+        "initial": "benchmarks/math/circle_packing_n32/initial_program.py",
+        "evaluator": "benchmarks/math/circle_packing_n32/evaluator.py",
+        "config": "benchmarks/math/circle_packing_n32/config_nvidia.yaml",
+    },
+    "circle_packing_rect": {
+        "alias": "cprect",
+        "initial": "benchmarks/math/circle_packing_rect/initial_program.py",
+        "evaluator": "benchmarks/math/circle_packing_rect/evaluator.py",
+        "config": "benchmarks/math/circle_packing_rect/config_nvidia.yaml",
+    },
+    "erdos_min_overlap": {
+        "alias": "erdos",
+        "initial": "benchmarks/math/erdos_min_overlap/initial_program.py",
+        "evaluator": "benchmarks/math/erdos_min_overlap/evaluator.py",
+        "config": "benchmarks/math/erdos_min_overlap/config_nvidia.yaml",
+    },
+    "first_autocorr_ineq": {
+        "alias": "auto1",
+        "initial": "benchmarks/math/first_autocorr_ineq/initial_program.py",
+        "evaluator": "benchmarks/math/first_autocorr_ineq/evaluator.py",
+        "config": "benchmarks/math/first_autocorr_ineq/config_nvidia.yaml",
+    },
+    "heilbronn_convex/13": {
+        "alias": "hconv13",
+        "initial": "benchmarks/math/heilbronn_convex/13/initial_program.py",
+        "evaluator": "benchmarks/math/heilbronn_convex/13/evaluator.py",
+        "config": "benchmarks/math/heilbronn_convex/13/config_nvidia.yaml",
+    },
+    "heilbronn_convex/14": {
+        "alias": "hconv14",
+        "initial": "benchmarks/math/heilbronn_convex/14/initial_program.py",
+        "evaluator": "benchmarks/math/heilbronn_convex/14/evaluator.py",
+        "config": "benchmarks/math/heilbronn_convex/14/config_nvidia.yaml",
+    },
+    "heilbronn_triangle": {
+        "alias": "heil",
+        "initial": "benchmarks/math/heilbronn_triangle/initial_program.py",
+        "evaluator": "benchmarks/math/heilbronn_triangle/evaluator.py",
+        "config": "benchmarks/math/heilbronn_triangle/config_nvidia.yaml",
+    },
+    "hexagon_packing/11": {
+        "alias": "hex11",
+        "initial": "benchmarks/math/hexagon_packing/11/initial_program.py",
+        "evaluator": "benchmarks/math/hexagon_packing/11/evaluator.py",
+        "config": "benchmarks/math/hexagon_packing/11/config_nvidia.yaml",
+    },
+    "hexagon_packing/12": {
+        "alias": "hex12",
+        "initial": "benchmarks/math/hexagon_packing/12/initial_program.py",
+        "evaluator": "benchmarks/math/hexagon_packing/12/evaluator.py",
+        "config": "benchmarks/math/hexagon_packing/12/config_nvidia.yaml",
+    },
+    "matmul": {
+        "alias": "matmul",
+        "initial": "benchmarks/math/matmul/initial_program.py",
+        "evaluator": "benchmarks/math/matmul/evaluator.py",
+        "config": "benchmarks/math/matmul/config_nvidia.yaml",
+    },
+    "minimizing_max_min_dist/2": {
+        "alias": "mmd2",
+        "initial": "benchmarks/math/minimizing_max_min_dist/2/initial_program.py",
+        "evaluator": "benchmarks/math/minimizing_max_min_dist/2/evaluator.py",
+        "config": "benchmarks/math/minimizing_max_min_dist/2/config_nvidia.yaml",
+    },
+    "minimizing_max_min_dist/3": {
+        "alias": "mmd3",
+        "initial": "benchmarks/math/minimizing_max_min_dist/3/initial_program.py",
+        "evaluator": "benchmarks/math/minimizing_max_min_dist/3/evaluator.py",
+        "config": "benchmarks/math/minimizing_max_min_dist/3/config_nvidia.yaml",
+    },
+    "second_autocorr_ineq": {
+        "alias": "auto2",
+        "initial": "benchmarks/math/second_autocorr_ineq/initial_program.py",
+        "evaluator": "benchmarks/math/second_autocorr_ineq/evaluator.py",
+        "config": "benchmarks/math/second_autocorr_ineq/config_nvidia.yaml",
+    },
+    "sums_diffs_finite_sets": {
+        "alias": "sumsdiffs",
+        "initial": "benchmarks/math/sums_diffs_finite_sets/initial_program.py",
+        "evaluator": "benchmarks/math/sums_diffs_finite_sets/evaluator.py",
+        "config": "benchmarks/math/sums_diffs_finite_sets/config_nvidia.yaml",
+    },
+    "third_autocorr_ineq": {
+        "alias": "auto3",
+        "initial": "benchmarks/math/third_autocorr_ineq/initial_program.py",
+        "evaluator": "benchmarks/math/third_autocorr_ineq/evaluator.py",
+        "config": "benchmarks/math/third_autocorr_ineq/config_nvidia.yaml",
+    },
+    "uncertainty_ineq": {
+        "alias": "uncert",
+        "initial": "benchmarks/math/uncertainty_ineq/initial_program.py",
+        "evaluator": "benchmarks/math/uncertainty_ineq/evaluator.py",
+        "config": "benchmarks/math/uncertainty_ineq/config_nvidia.yaml",
     },
     "function_minimization": {
         "alias": "func",
@@ -38,6 +134,28 @@ BENCHMARKS = {
         "initial": "benchmarks/math/signal_processing/initial_program.py",
         "evaluator": "benchmarks/math/signal_processing/evaluator/evaluator.py",
         "config": "benchmarks/math/signal_processing/config_nvidia.yaml",
+    },
+    "signal_processing_openevolve": {
+        "alias": "sp_oe",
+        "initial": "benchmarks/math/signal_processing_openevolve/initial_program.py",
+        "evaluator": "benchmarks/math/signal_processing_openevolve/evaluator.py",
+        "config": "benchmarks/math/signal_processing_openevolve/config_adaevolve_nvidia.yaml",
+        "strategy_configs": {
+            "adaevolve": "benchmarks/math/signal_processing_openevolve/config_adaevolve_nvidia.yaml",
+            "evox": "benchmarks/math/signal_processing_openevolve/config_evox_nvidia.yaml",
+        },
+    },
+    "coral_trimul": {
+        "alias": "trimul",
+        "initial": "benchmarks/coral_trimul/initial_program.py",
+        "evaluator": "benchmarks/coral_trimul/evaluator.py",
+        "config": "benchmarks/coral_trimul/config_nvidia.yaml",
+    },
+    "coral_kernel_builder": {
+        "alias": "kbuilder",
+        "initial": "benchmarks/coral_kernel_builder/initial_program.py",
+        "evaluator": "benchmarks/coral_kernel_builder/evaluator.py",
+        "config": "benchmarks/coral_kernel_builder/config_nvidia.yaml",
     },
 }
 
@@ -69,12 +187,29 @@ def _best_from_convergence(path: Path) -> tuple[float | None, dict[str, Any]]:
         if not line.strip():
             continue
         row = json.loads(line)
-        score = row.get("best_score")
+        score = row.get("score")
         if isinstance(score, (int, float)) and not isinstance(score, bool):
-            if best_score is None or float(score) >= best_score:
+            if best_score is None or float(score) > best_score:
                 best_score = float(score)
                 best_row = row
     return best_score, best_row
+
+
+def _best_from_run(run_dir: Path, convergence_path: Path) -> tuple[float | None, dict[str, Any]]:
+    """Return score and metrics for the actual best program, not the final iteration."""
+    best_info = _read_json(run_dir / "best" / "best_program_info.json")
+    metrics = best_info.get("metrics") or {}
+    _, score = _score_from_metrics(metrics)
+    if score is not None:
+        return score, {
+            "event": "best",
+            "program_id": best_info.get("id"),
+            "parent_id": best_info.get("parent_id"),
+            "iteration": best_info.get("iteration") or best_info.get("generation"),
+            "metrics": metrics,
+            "source": "best/best_program_info.json",
+        }
+    return _best_from_convergence(convergence_path)
 
 
 def run_one(
@@ -89,7 +224,7 @@ def run_one(
     run_dir = output_root / benchmark / strategy / f"run_{run_idx:02d}"
     convergence_path = run_dir / "convergence.jsonl"
     if resume and convergence_path.exists():
-        best_score, best_row = _best_from_convergence(convergence_path)
+        best_score, best_row = _best_from_run(run_dir, convergence_path)
         return {
             "benchmark": benchmark,
             "strategy": strategy,
@@ -107,7 +242,7 @@ def run_one(
         cfg["initial"],
         cfg["evaluator"],
         "--config",
-        cfg["config"],
+        cfg.get("strategy_configs", {}).get(strategy, cfg["config"]),
         "--search",
         strategy,
         "--output",
@@ -121,7 +256,7 @@ def run_one(
     elapsed = time.time() - start
 
     export_convergence(run_dir, convergence_path)
-    best_score, best_row = _best_from_convergence(convergence_path)
+    best_score, best_row = _best_from_run(run_dir, convergence_path)
     return {
         "benchmark": benchmark,
         "strategy": strategy,

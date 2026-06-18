@@ -1,0 +1,67 @@
+# OpenEvolve-parity signal-processing run with original AdaEvolve.
+language: python
+diff_based_generation: true
+max_iterations: 50
+checkpoint_interval: 10
+max_solution_length: 60000
+log_level: INFO
+random_seed: 42
+
+llm:
+  api_base: "https://integrate.api.nvidia.com/v1"
+  api_key: ${NVIDIA_API_KEY}
+  models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  evaluator_models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  guide_models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  temperature: 0.2
+  max_tokens: 4096
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+
+prompt:
+  system_message: "You are an expert signal processing engineer specializing in adaptive filtering algorithms. Your task is to improve a signal processing algorithm that filters volatile, non-stationary time series data using a sliding window approach. The evaluator calls run_signal_processing(noisy_signal=..., window_size=20); use the provided noisy_signal instead of generating a replacement signal. Return a filtered signal of length len(noisy_signal) - window_size + 1. Focus on multi-objective optimization of: slope change minimization, lag error minimization, tracking accuracy, and false reversal penalty."
+
+search:
+  type: adaevolve
+  num_context_programs: 4
+  database:
+    population_size: 80
+    archive_size: 30
+    num_islands: 4
+    use_adaptive_search: true
+    use_ucb_selection: true
+    use_migration: true
+    use_unified_archive: true
+    migration_interval: 10
+    migration_count: 5
+    diversity_strategy: code
+    use_dynamic_islands: true
+    max_islands: 5
+    use_paradigm_breakthrough: true
+    enable_error_retry: true
+    max_error_retries: 2
+    fitness_key: overall_score
+
+evaluator:
+  timeout: 120
+  max_retries: 3
+  cascade_evaluation: true
+  cascade_thresholds:
+    - 0.3
+    - 0.6
+
+monitor:
+  enabled: false

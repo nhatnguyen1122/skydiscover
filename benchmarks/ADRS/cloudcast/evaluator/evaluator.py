@@ -5,8 +5,10 @@ import os
 import sys
 from pathlib import Path
 
-# Add parent directory to Python path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Add benchmark and evaluator directories to Python path for path-based imports.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 from utils import *
 from simulator import *

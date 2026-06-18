@@ -3,6 +3,8 @@ import errno
 import importlib.util
 import logging
 import os
+import pickle
+import subprocess
 import sys
 import tempfile
 import time
@@ -20,6 +22,103 @@ from skydiscover.utils.metrics import format_metrics
 
 logger = logging.getLogger(__name__)
 _EVALUATOR_ENV_LOCK = RLock()
+
+
+def _run_evaluation_subprocess(
+    evaluation_file: str,
+    program_path: str,
+    timeout: int,
+    function_name: str = "evaluate",
+    env_vars: Optional[Dict[str, str]] = None,
+) -> Any:
+    """Run an evaluator function in a killable subprocess."""
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as result_file:
+        result_path = result_file.name
+
+    child_code = r"""
+import importlib.util
+import os
+import pickle
+import sys
+import traceback
+
+evaluation_file = sys.argv[1]
+program_path = sys.argv[2]
+result_path = sys.argv[3]
+function_name = sys.argv[4]
+
+try:
+    eval_dir = os.path.dirname(os.path.abspath(evaluation_file))
+    if eval_dir not in sys.path:
+        sys.path.insert(0, eval_dir)
+
+    spec = importlib.util.spec_from_file_location("evaluation_module", evaluation_file)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Failed to load spec from {evaluation_file}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["evaluation_module"] = module
+    spec.loader.exec_module(module)
+    evaluator_fn = getattr(module, function_name)
+    result = evaluator_fn(program_path)
+    payload = {"ok": True, "result": result}
+except BaseException as exc:
+    payload = {
+        "ok": False,
+        "error": str(exc),
+        "traceback": traceback.format_exc(),
+        "type": type(exc).__name__,
+    }
+
+with open(result_path, "wb") as handle:
+    pickle.dump(payload, handle)
+"""
+
+    child_env = os.environ.copy()
+    if env_vars:
+        child_env.update(env_vars)
+
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                child_code,
+                evaluation_file,
+                program_path,
+                result_path,
+                function_name,
+            ],
+            timeout=timeout,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env=child_env,
+        )
+
+        try:
+            with open(result_path, "rb") as handle:
+                payload = pickle.load(handle)
+        except Exception as exc:
+            stderr = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+            raise RuntimeError(
+                f"Evaluation subprocess failed with returncode {proc.returncode}. "
+                f"stderr: {stderr}"
+            ) from exc
+
+        if payload.get("ok"):
+            return payload.get("result")
+
+        raise RuntimeError(
+            f"{payload.get('type', 'EvaluationError')}: {payload.get('error')}\n"
+            f"{payload.get('traceback', '')}"
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise asyncio.TimeoutError(f"Evaluation timed out after {timeout}s") from exc
+    finally:
+        try:
+            os.unlink(result_path)
+        except OSError:
+            pass
 
 
 class Evaluator:
@@ -205,12 +304,21 @@ class Evaluator:
     # ------------------------------------------------------------------
 
     async def _run_stage(self, func, program_path: str) -> Any:
-        """Run a single evaluation function in a thread with timeout."""
+        """Run a single evaluation function in a killable subprocess."""
         loop = asyncio.get_running_loop()
+        function_name = getattr(func, "__name__", "evaluate")
 
         return await asyncio.wait_for(
-            loop.run_in_executor(None, self._call_with_env, func, program_path),
-            timeout=self.config.timeout,
+            loop.run_in_executor(
+                None,
+                _run_evaluation_subprocess,
+                self.evaluation_file,
+                program_path,
+                self.config.timeout,
+                function_name,
+                self.env_vars,
+            ),
+            timeout=self.config.timeout + 5,
         )
 
     @contextmanager

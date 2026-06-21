@@ -157,6 +157,12 @@ BENCHMARKS = {
         "evaluator": "benchmarks/coral_kernel_builder/evaluator.py",
         "config": "benchmarks/coral_kernel_builder/config_nvidia.yaml",
     },
+    "pace_symbolic_regression": {
+        "alias": "pace_symreg",
+        "initial": "benchmarks/pace_symbolic_regression/initial_program.py",
+        "evaluator": "benchmarks/pace_symbolic_regression/evaluator.py",
+        "config": "benchmarks/pace_symbolic_regression/config_nvidia.yaml",
+    },
 }
 
 STRATEGIES = ("adaevolve", "evox")

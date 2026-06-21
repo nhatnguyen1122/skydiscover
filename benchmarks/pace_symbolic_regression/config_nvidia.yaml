@@ -1,0 +1,49 @@
+language: python
+diff_based_generation: true
+max_iterations: 100
+checkpoint_interval: 10
+max_solution_length: 30000
+llm:
+  api_base: "https://integrate.api.nvidia.com/v1"
+  api_key: ${NVIDIA_API_KEY}
+  models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  evaluator_models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  guide_models:
+    - name: "openai/gpt-oss-120b"
+      api_base: "https://integrate.api.nvidia.com/v1"
+      api_key: ${NVIDIA_API_KEY}
+      weight: 1.0
+  temperature: 0.2
+  max_tokens: 4096
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+prompt:
+  system_message: |
+    You are an expert in symbolic regression and scientific equation discovery.
+    Improve LLMSR.equation(inputs, params) for the selected LLM-SR problem.
+    The evaluator sets LLM_SR_PROBLEM_NAME to one of oscillator1, oscillator2, bactgrow, or stressstrain.
+    inputs is a 2D NumPy array with the problem observed variables as columns; return one finite prediction per row.
+    The evaluator fits numeric params on train data, then scores log10 normalized MSE on held-out and OOD data.
+    Lower log10_nmse is better; the framework maximizes combined_score = -weighted log10_nmse.
+    Keep the LLMSR class API intact.
+search:
+  type: adaevolve
+  num_context_programs: 4
+  database:
+    population_size: 60
+    archive_size: 30
+    num_islands: 4
+evaluator:
+  timeout: 600
+  cascade_evaluation: false
+monitor:
+  enabled: false

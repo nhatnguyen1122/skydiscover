@@ -70,7 +70,7 @@ def test_backup_switch_and_crash():
 
 
 def test_theta_ema_and_individual_reward():
-    t = LineageTree(0, rho=0.9)
+    t = LineageTree(0, rho=0.9, theta_mode="ema")
     root = t.add_root("r", 1.0)
     assert t.individual_reward(root) == 0.0  # theta undefined
     t.update_scalars(rec(1, "r", score=2.0, pscore=1.0))
@@ -239,7 +239,11 @@ def test_database_commit_flow_and_checkpoint(tmp_path):
     r3 = db.commit_attempt(parent_id="c1", island=0, iteration=3, status="crashed",
                            intent={"strategy": "unspecified"}, prompt_sources={},
                            error="timeout", candidate_hash="deadbeef")
-    assert db.adapter.dimension_visits[0] == visits + 2  # visible to the scheduler
+    assert db.adapter.dimension_visits[0] == visits  # failures: reported per iteration
+    evals = db.adapter.states[0].total_evaluations
+    db.record_failed_visit(0)
+    assert db.adapter.dimension_visits[0] == visits + 1  # visible to the scheduler
+    assert db.adapter.states[0].total_evaluations == evals  # spawn productivity untouched
     assert r2.q == 1.0 and r2.shares == {s.id: 1.0} and r3.shares == {}
     assert "deadbeef" in db.hash_index
     assert child.beta == pytest.approx(2 * (1 - child.mu0) + 2.0)
@@ -287,25 +291,6 @@ def test_meta_trigger_and_switches():
     assert db.trees[0].nodes["c"].mu0 == 0.5  # inherited prior switched off
 
 
-def test_retried_failure_is_logged_but_not_evidence():
-    db = make_db()
-    db.add(prog("init", 1.0, "x = 0"))
-    root = db.trees[0].nodes["init"]
-    visits = db.adapter.dimension_visits[0]
-    r = db.commit_attempt(parent_id="init", island=0, iteration=1, status="crashed",
-                          intent={"strategy": "new:foo", "description": "d"}, prompt_sources={},
-                          error="boom", candidate_hash="h1", evidence=False, count_visit=False)
-    assert (root.alpha, root.beta) == (1.0, 1.0) and r.evidence is False
-    assert db.trees[0].attempts_since_progress == 0 and db.trees[0].num_attempts == 0
-    assert db.adapter.dimension_visits[0] == visits
-    assert len(db.memory) == 0 and r.strategy_name == "foo" and r.shares == {}
-    assert root.attempts == [r] and "h1" in db.hash_index  # visible in the attempt log
-    # the final failure of the iteration counts
-    db.commit_attempt(parent_id="init", island=0, iteration=1, status="crashed",
-                      intent={}, prompt_sources={}, error="boom", candidate_hash="h2")
-    assert root.beta == 2.0 and db.adapter.dimension_visits[0] == visits + 1
-
-
 def test_message_text_handles_part_lists():
     from skydiscover.llm.openai import _message_text
 
@@ -316,3 +301,123 @@ def test_message_text_handles_part_lists():
         {"type": "text", "text": "answer ```python\nx=1\n```"},
     ]
     assert _message_text(parts) == "answer ```python\nx=1\n```"
+
+
+def test_local_evidence_max_backup_and_visits():
+    t = LineageTree(0)
+    root = t.add_root("r", 1.0)
+    assert (root.alpha_loc, root.beta_loc, root.best_sub) == (1.0, 1.0, 1.0)
+    t.record_visits(["r"])
+    t.backup(root, True, 2.0, q=0.5)
+    t.backup_max(root, 2.0)
+    a = t.add_child(root, "a", 2.0, rec(1, "r", score=2.0, pscore=1.0), 1)
+    assert (root.alpha_loc, root.beta_loc) == (1.5, 1.0)
+    assert t.root_visits == 1 and root.visits == 1 and root.expand_visits == 1
+    # a failed attempt deep in the tree lowers the subtree evidence of the
+    # root but not its local (expand-here) evidence
+    t.record_visits(["r", "a"])
+    t.backup(a, False, None, q=1.0)
+    assert root.beta == pytest.approx(1.0 + 0.9) and root.beta_loc == 1.0
+    assert root.visits == 2 and root.expand_visits == 1 and a.expand_visits == 1
+    t.backup_max(a, 3.0)
+    assert root.best_sub == 3.0 and a.best_sub == 3.0
+    assert LineageTree.from_dict(t.to_dict()).to_dict() == t.to_dict()
+
+
+def test_puct_values_follow_spec_example():
+    # PUCT spec 6.6: A is the island best with 4 failed direct attempts;
+    # B is one step behind, fresh, born with mu0 = 0.67.
+    t = LineageTree(0)
+    a = t.add_root("A", 2.0)
+    b = t.add_root("B", 1.0, mu0=2 / 3)
+    t.theta = 1.0
+    a.alpha_loc, a.beta_loc = 1.0, 5.0
+    q_expand_a, _ = t._action_values(a, True, {})
+    q_b, pi_b = t._action_values(b, False, {})
+    assert q_expand_a == pytest.approx(1 / 6)
+    assert q_b == pytest.approx((2 / 3) * math.exp(-1))
+    assert pi_b == pytest.approx((2 / 3) * math.exp(-1))
+    assert q_b > q_expand_a
+
+
+def test_puct_descent_and_switches():
+    t = LineageTree(0)
+    root = t.add_root("r", 1.0)
+    rng = random.Random(0)
+    node, info = t.puct_select(rng, c_t=1.0)
+    assert node.id == "r" and info["path"] == ["r"]  # leaf: only "expand"
+    assert info["steps"][-1]["chosen"]["action"] == "expand"
+    # a strong child pulls the descent below the root
+    t.backup(root, True, 2.0, 1.0); t.backup_max(root, 2.0)
+    t.add_child(root, "c", 2.0, rec(1, "r", score=2.0, pscore=1.0), 1)
+    t.update_scalars(rec(1, "r", score=2.0, pscore=1.0))
+    for _ in range(3):  # failures at r make expanding r unattractive
+        t.record_visits(["r"]); t.backup(root, False, None, 1.0)
+    node, info = t.puct_select(random.Random(1), c_t=1.0)
+    assert node.id == "c" and info["path"] == ["r", "c"]
+    for step in info["steps"]:
+        assert step["chosen"]["score"] >= (step["best_alternative"] or {"score": -1})["score"]
+    # c_t = 0: pure exploitation of Q is deterministic
+    n1, _ = t.puct_select(random.Random(5), c_t=0.0)
+    n2, _ = t.puct_select(random.Random(9), c_t=0.0)
+    assert n1.id == n2.id
+    # uniform-prior and UCT switches run
+    t.puct_select(random.Random(2), c_t=1.0, switches={"puct_prior": False})
+    t.puct_select(random.Random(2), c_t=1.0, switches={"uct": True, "max_backup": False})
+
+
+def test_puct_database_flow_and_ucb_retrieval(tmp_path):
+    from skydiscover.config import LineageEvolvePUCTDatabaseConfig
+
+    cfg = LineageEvolvePUCTDatabaseConfig(num_islands=1, population_size=20)
+    db = LineageEvolveDatabase("lineageevolve_puct", cfg)
+    assert db.selection_policy == "puct" and db.retrieval_mode == "ucb"
+    db.add(prog("init", 1.0, "x = 0"))
+    db.total_iterations, db.current_iteration = 10, 5
+    assert db.current_c() == pytest.approx(0.5)
+    parent, _ = db.sample(2)
+    sel = db.last_selection
+    assert sel["policy"] == "puct" and sel["path"] == ["init"]
+    db.commit_attempt(parent_id="init", island=0, iteration=1, status="admitted",
+                      intent={"strategy": "new:a", "description": "d"}, prompt_sources={},
+                      child_program=prog("c1", 2.0, "x = 1", "init"), selection_path=sel["path"])
+    tree = db.trees[0]
+    assert tree.root_visits == 1 and tree.nodes["init"].expand_visits == 1
+    assert tree.nodes["init"].best_sub == 2.0 and tree.nodes["c1"].visits == 0
+    db.memory.create("b")
+    lessons, _ = db.retrieve_strategies(tree.nodes["c1"])
+    assert lessons and lessons[0]["draw"] == pytest.approx(0.5 + 1.0 * math.sqrt(0.25 / 3))
+    path = str(tmp_path / "ck")
+    db.save(path, 1)
+    db2 = LineageEvolveDatabase("lineageevolve_puct", cfg)
+    db2.load(path)
+    assert [t_.to_dict() for t_ in db2.trees] == [t_.to_dict() for t_ in db.trees]
+
+
+def test_theta_window_tracks_recent_gains_and_stagnation_signal():
+    t = LineageTree(0, theta_mode="window", theta_window=3)
+    t.add_root("r", 0.0)
+    t.update_scalars(rec(1, "r", score=0.9, pscore=0.0))  # huge first jump
+    for i, s_ in enumerate([0.91, 0.912, 0.913], start=2):
+        t.update_scalars(rec(i, "r", score=s_, pscore=s_ - (0.01 if i == 2 else 0.002 if i == 3 else 0.001)))
+    assert t.theta == pytest.approx(0.002)  # median of the last 3 gains, jump forgotten
+    assert t.attempts_since_best == 0
+    t.update_scalars(rec(9, "r", score=0.5, pscore=0.4))  # progress, but not a new best
+    assert t.attempts_since_progress == 0 and t.attempts_since_best == 1
+
+
+def test_score_clone_is_recorded_but_not_a_node():
+    db = make_db()
+    db.add(prog("init", 1.0, "x = 0"))
+    r = db.commit_attempt(parent_id="init", island=0, iteration=1, status="admitted",
+                          intent={}, prompt_sources={}, child_program=prog("c", 1.0, "x = 5", "init"))
+    tree = db.trees[0]
+    assert "c" not in tree.nodes and "c" not in db.node_island
+    assert r.y_parent == 0 and r.error.startswith("same score")
+    assert "c" in db.programs and code_hash("x = 5") in db.hash_index
+    assert tree.nodes["init"].attempts == [r]
+    db2 = make_db(keep_score_clones=True)
+    db2.add(prog("init", 1.0, "x = 0"))
+    db2.commit_attempt(parent_id="init", island=0, iteration=1, status="admitted",
+                       intent={}, prompt_sources={}, child_program=prog("c", 1.0, "x = 5", "init"))
+    assert "c" in db2.trees[0].nodes

@@ -5,6 +5,7 @@ Implements Sections 8.3 and 8.4 of the LineageEvolve specification.
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -129,18 +130,29 @@ class StrategyMemory:
         k_plus: int = 2,
         k_minus: int = 1,
         forced: Optional[str] = None,
+        mode: str = "thompson",
+        c0: float = 1.0,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Return (lessons to try, warnings), each a list of
         ``{"strategy": Strategy, "a": float, "b": float, "draw": float|None}``.
 
         ``forced`` is a strategy id that takes one of the ``k_plus`` slots
         (the meta-guidance idea generated in this iteration).
+
+        ``mode="thompson"`` ranks lessons by a Beta draw (Thompson variant,
+        Section 8.4); ``mode="ucb"`` ranks them by the posterior mean plus
+        ``c0`` posterior standard deviations (PUCT variant, Section 9.4).
         """
         eligible = [s for sid, s in self.strategies.items() if sid not in excluded]
         scored = []
         for s in eligible:
             a, b = self.utility(s, parent_tokens, tokens_of)
-            scored.append({"strategy": s, "a": a, "b": b, "draw": rng.betavariate(a, b)})
+            if mode == "ucb":
+                mean = a / (a + b)
+                draw = mean + c0 * math.sqrt(mean * (1.0 - mean) / (a + b + 1.0))
+            else:
+                draw = rng.betavariate(a, b)
+            scored.append({"strategy": s, "a": a, "b": b, "draw": draw})
 
         lessons: List[Dict[str, Any]] = []
         if forced is not None and k_plus > 0:

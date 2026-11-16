@@ -467,7 +467,11 @@ class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
     k_plus: int = 2  # lessons to try
     k_minus: int = 1  # warnings
     path_recent: int = 5  # h: recent edits kept in the path trace
-    stagnation_window: int = 10  # W: attempts without progress before meta-guidance
+    stagnation_window: int = 8  # W: attempts without improvement before meta-guidance
+    stagnation_signal: str = "island_best"  # "island_best" or "progress" (spec)
+    theta_mode: str = "window"  # "window" (median of recent gains) or "ema" (spec)
+    theta_window: int = 5
+    keep_score_clones: bool = False  # spec: True (every admitted child is a node)
     meta_cooldown: Optional[int] = None  # attempts between meta-guidance calls (default W)
     meta_num_ideas: int = 3
     strategy_list_cap: int = 30
@@ -485,10 +489,24 @@ class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
     use_dedup: bool = True
     use_meta_guidance: bool = True
 
-    # Protocol parity with AdaEvolve: retry a crashed/duplicate candidate on
-    # the same parent within the iteration (up to max_error_retries times).
-    retry_candidate_failures: bool = True
-    retry_failure_evidence: str = "final"  # "final" or "all"
+    # Tree policy: "thompson" (LineageEvolve_method_spec.md) or "puct"
+    # (LineageEvolve_method_spec_puct.md).  The fields below are used by PUCT.
+    selection_policy: str = "thompson"
+    c0: float = 1.0  # PUCT exploration strength, decays linearly to 0 over the budget
+    eta: float = 0.25  # uniform floor of the PUCT prior policy
+    retrieval_mode: Optional[str] = None  # "thompson"/"ucb"; default follows the policy
+    use_individual_reward: bool = True
+    use_puct_prior: bool = True
+    use_uct: bool = False
+    use_max_backup: bool = True
+    use_local_expand_value: bool = True
+
+
+@dataclass
+class LineageEvolvePUCTDatabaseConfig(LineageEvolveDatabaseConfig):
+    """LineageEvolve with an MCTS tree policy based on PUCT."""
+
+    selection_policy: str = "puct"
 
 
 @dataclass
@@ -551,6 +569,7 @@ _DB_CONFIG_BY_TYPE: Dict[str, type] = {
     "topk": DatabaseConfig,
     "adaevolve": AdaEvolveDatabaseConfig,
     "lineageevolve": LineageEvolveDatabaseConfig,
+    "lineageevolve_puct": LineageEvolvePUCTDatabaseConfig,
     "openevolve_native": OpenEvolveNativeDatabaseConfig,
     "gepa_native": GEPANativeDatabaseConfig,
     "claude_code": ClaudeCodeConfig,

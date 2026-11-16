@@ -1,5 +1,9 @@
 """LineageEvolve database: AdaEvolve's islands with a lineage tree per island.
 
+One class serves both variants; ``selection_policy`` picks the tree policy:
+``"thompson"`` (LineageEvolve_method_spec.md, Section 6) or ``"puct"``
+(LineageEvolve_method_spec_puct.md, Section 6).
+
 What is inherited unchanged from ``AdaEvolveDatabase``:
   island scheduler (decayed UCB), migration, dynamic island spawning, the
   per-island archive used to sample context programs, best-program tracking
@@ -32,6 +36,7 @@ from skydiscover.search.base_database import Program
 from skydiscover.search.lineageevolve.attribution import code_hash, token_set
 from skydiscover.search.lineageevolve.memory import ORIGIN_EDIT, ORIGIN_META, StrategyMemory
 from skydiscover.search.lineageevolve.tree import (
+    numerical_tolerance,
     STATUS_ADMITTED,
     UNSPECIFIED,
     AttemptRecord,
@@ -69,7 +74,17 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         self.k_plus = int(getattr(config, "k_plus", 2))
         self.k_minus = int(getattr(config, "k_minus", 1))
         self.path_recent = int(getattr(config, "path_recent", 5))
-        self.stagnation_window = int(getattr(config, "stagnation_window", 10))
+        self.stagnation_window = int(getattr(config, "stagnation_window", 8))
+        # "island_best": attempts since the island best last improved (default);
+        # "progress": attempts since the last progress event (spec).  With a
+        # deterministic evaluator tiny gains count as progress, so the spec
+        # signal almost never fires.
+        self.stagnation_signal = str(getattr(config, "stagnation_signal", "island_best"))
+        self.theta_mode = str(getattr(config, "theta_mode", "window"))
+        self.theta_window = int(getattr(config, "theta_window", 5))
+        # A child with exactly its parent's score adds no new expandable node
+        # (it is still recorded as a no-progress attempt and kept as a program).
+        self.keep_score_clones = bool(getattr(config, "keep_score_clones", False))
         cooldown = getattr(config, "meta_cooldown", None)
         self.meta_cooldown = int(cooldown) if cooldown is not None else self.stagnation_window
         self.meta_num_ideas = int(getattr(config, "meta_num_ideas", 3))
@@ -83,18 +98,36 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         self.use_lineage_context = bool(getattr(config, "use_lineage_context", True))
         self.use_strategy_memory = bool(getattr(config, "use_strategy_memory", True))
         self.use_dedup = bool(getattr(config, "use_dedup", True))
-        # In-iteration retries of failed candidates: "final" backs up only the
-        # last outcome of an iteration, "all" backs up every failed try.
-        self.retry_failure_evidence = str(getattr(config, "retry_failure_evidence", "final"))
 
-        # Reproducible RNG, seeded from the run seed (Section 6).
+        # Tree policy: "thompson" or "puct" (+ PUCT hyperparameters/switches).
+        self.selection_policy = str(getattr(config, "selection_policy", "thompson")).lower()
+        if self.selection_policy not in ("thompson", "puct"):
+            raise ValueError(f"Unknown selection_policy: {self.selection_policy}")
+        self.c0 = float(getattr(config, "c0", 1.0))
+        self.eta = float(getattr(config, "eta", 0.25))
+        self.puct_switches = {
+            "lineage_reward": self.use_lineage_reward,
+            "individual_reward": bool(getattr(config, "use_individual_reward", True)),
+            "puct_prior": bool(getattr(config, "use_puct_prior", True)),
+            "uct": bool(getattr(config, "use_uct", False)),
+            "max_backup": bool(getattr(config, "use_max_backup", True)),
+            "local_expand_value": bool(getattr(config, "use_local_expand_value", True)),
+        }
+        retrieval = getattr(config, "retrieval_mode", None)
+        self.retrieval_mode = (
+            str(retrieval).lower()
+            if retrieval
+            else ("ucb" if self.selection_policy == "puct" else "thompson")
+        )
+
+        # Reproducible RNG for the method's own random choices (tree policy,
+        # retrieval), seeded from the run seed (Section 6).  The module-level
+        # generator that AdaEvolve's inherited code uses (context sampling,
+        # UCB tie-breaks, spawn presets) is left unseeded, exactly as in
+        # AdaEvolve.
         seed = os.environ.get("SKYDISCOVER_SEED")
         self.random_seed = int(seed) if seed not in (None, "") else getattr(config, "random_seed", 42)
         self.rng = random.Random(self.random_seed)
-        if self.random_seed is not None:
-            # AdaEvolve's own sampling (context programs, UCB tie-breaks,
-            # spawn presets) uses the module-level generator.
-            random.seed(self.random_seed)
 
         # Search state (Section 2)
         self.trees: List[LineageTree] = [self._new_tree(i) for i in range(self.num_islands)]
@@ -104,7 +137,8 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         self._attempt_counter = 0
         self._token_cache: Dict[str, frozenset] = {}
         self.total_iterations: Optional[int] = None  # H, set by the controller
-        self.last_selection: Optional[SelectionInfo] = None
+        self.last_selection: Optional[Dict[str, Any]] = None
+        self.current_iteration: int = 0  # set by the controller each iteration
         self._root_events: List[Dict[str, Any]] = []  # roots created since last drained
 
         logger.info(
@@ -112,7 +146,9 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             f"gamma={self.gamma}, kappa={self.kappa}, rho={self.theta_decay}, "
             f"epsilon={self.epsilon}, tau={self.tau} ({self.tau_schedule}), "
             f"K+={self.k_plus}, K-={self.k_minus}, h={self.path_recent}, "
-            f"W={self.stagnation_window}, seed={self.random_seed}; switches: "
+            f"W={self.stagnation_window}, seed={self.random_seed}, "
+            f"policy={self.selection_policy} (c0={self.c0}, eta={self.eta}, "
+            f"retrieval={self.retrieval_mode}, puct_switches={self.puct_switches}); switches: "
             f"lineage_reward={self.use_lineage_reward}, backup={self.use_ancestor_backup}, "
             f"inherited_prior={self.use_inherited_prior}, "
             f"attribution={self.use_source_attribution}, "
@@ -131,6 +167,8 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             kappa=self.kappa,
             rho=self.theta_decay,
             epsilon=self.epsilon,
+            theta_mode=self.theta_mode,
+            theta_window=self.theta_window,
         )
 
     def _ensure_tree(self, island: int) -> LineageTree:
@@ -275,6 +313,7 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         ]
         if thetas:
             tree.theta = sum(thetas) / len(thetas)
+            tree.progress_gains = [tree.theta]
 
     # ------------------------------------------------------------------
     # Selection (Section 6)
@@ -286,14 +325,21 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             return self.total_iterations / remaining
         return self.tau
 
+    def current_c(self) -> float:
+        """PUCT exploration strength ``c_t = c0 (1 - t/H)`` (PUCT spec, 6.4)."""
+        if not self.total_iterations:
+            return self.c0
+        frac = min(max(self.current_iteration / self.total_iterations, 0.0), 1.0)
+        return self.c0 * (1.0 - frac)
+
     def sample(
         self,
         num_context_programs: Optional[int] = 4,
         force_exploration: bool = False,
         **kwargs: Any,
     ) -> Tuple[Dict[str, Program], Dict[str, List[Program]]]:
-        """Select the parent by lineage-tree Thompson sampling; sample context
-        programs exactly as AdaEvolve does (the parent itself excluded)."""
+        """Select the parent with the lineage tree policy (Thompson or PUCT);
+        sample context programs exactly as AdaEvolve does (parent excluded)."""
         island_idx = self.current_island
         tree = self._ensure_tree(island_idx)
         if not tree.nodes:
@@ -302,9 +348,16 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         if not tree.nodes:
             raise ValueError(f"Cannot sample: island {island_idx} is empty")
 
-        node, info = tree.select(
-            self.rng, tau=self.current_tau(), use_lineage_reward=self.use_lineage_reward
-        )
+        if self.selection_policy == "puct":
+            node, info = tree.puct_select(
+                self.rng, c_t=self.current_c(), eta=self.eta, switches=self.puct_switches
+            )
+        else:
+            node, sel = tree.select(
+                self.rng, tau=self.current_tau(), use_lineage_reward=self.use_lineage_reward
+            )
+            info = {"policy": "thompson", **sel.to_dict()}
+            info["path"] = [n.id for n in tree.path_from_root(node)]
         parent = self.programs[node.id]
 
         num = num_context_programs or 4
@@ -326,8 +379,8 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         self.last_selection = info
         self._last_sampling_mode = "lineage"
         logger.debug(
-            f"Selected node {node.id[:8]} on island {island_idx}: R={info.R:.3f}, "
-            f"p~={info.p_sample:.3f}, alpha={info.alpha:.2f}, beta={info.beta:.2f}"
+            f"Selected node {node.id[:8]} on island {island_idx} ({info['policy']}): "
+            f"R={info['R']:.3f}, alpha={info['alpha']:.2f}, beta={info['beta']:.2f}"
         )
         return {"": parent}, {"": unique}
 
@@ -387,6 +440,8 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             k_plus=self.k_plus,
             k_minus=self.k_minus,
             forced=forced,
+            mode=self.retrieval_mode,
+            c0=self.c0,
         )
         shown = {item["strategy"].id for item in lessons + warnings}
         for item in lessons + warnings:
@@ -404,8 +459,13 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         if not self.use_meta_guidance or not self.use_strategy_memory:
             return False
         tree = self.trees[island]
+        stalled = (
+            tree.attempts_since_best
+            if self.stagnation_signal == "island_best"
+            else tree.attempts_since_progress
+        )
         return (
-            tree.attempts_since_progress >= self.stagnation_window
+            stalled >= self.stagnation_window
             and not tree.pending_meta_ideas
             and tree.attempts_since_meta >= self.meta_cooldown
         )
@@ -450,20 +510,13 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         error: Optional[str] = None,
         candidate_hash: Optional[str] = None,
         interpretation: Optional[Dict[str, Any]] = None,
-        evidence: bool = True,
-        count_visit: bool = True,
+        selection_path: Optional[List[str]] = None,
     ) -> AttemptRecord:
         """Apply all updates of one attempt record atomically.
 
-        Order: backup (9) -> child prior (10) -> island scalars (11) ->
-        memory (12) -> island scheduler (13).
-
-        ``evidence=False`` records a failed try that is being retried inside
-        the same iteration: it is stored on the parent (so the attempt log
-        shows it) and its hash is indexed, but it is not backed up, does not
-        touch the island scalars and adds no strategy evidence.
-        ``count_visit=False`` keeps it invisible to the island scheduler, so
-        one iteration is one visit.
+        Order: visits + backup (9) -> child prior (10) -> island scalars (11)
+        -> memory (12) -> island scheduler (13, admitted edits only; failed
+        iterations are reported with ``record_failed_visit``).
         """
         tree = self.trees[island]
         parent = tree.nodes[parent_id]
@@ -495,17 +548,28 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             score=child_score,
             parent_score=parent.score,
             error=error,
-            evidence=bool(evidence) or admitted,
+            selection_path=list(selection_path or []),
         )
 
-        # Step 9: backup into the expanded node and its ancestors.
-        if record.evidence:
-            record.y_parent = tree.backup(
-                parent, admitted, child_score, q, to_ancestors=self.use_ancestor_backup
-            )
+        # Step 9: visits along the selection path (PUCT), backup of the
+        # evidence into the expanded node and its ancestors, max-backup.
+        tree.record_visits(record.selection_path or [parent_id])
+        record.y_parent = tree.backup(
+            parent, admitted, child_score, q, to_ancestors=self.use_ancestor_backup
+        )
+        if admitted:
+            tree.backup_max(parent, child_score)
 
         # Step 10: child node with the inherited prior (after backup).
-        if admitted:
+        is_clone = (
+            admitted
+            and not self.keep_score_clones
+            and abs(child_score - parent.score) <= numerical_tolerance(self.epsilon, parent.score)
+        )
+        if is_clone:
+            record.error = "same score as parent (no new node)"
+            self.hash_index.add(candidate_hash or code_hash(child_program.solution))
+        elif admitted:
             tree.add_child(
                 parent,
                 child_program.id,
@@ -520,16 +584,16 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             self.hash_index.add(candidate_hash)
 
         # Step 11: island scalars.
-        if record.evidence:
-            tree.update_scalars(record)
+        tree.update_scalars(record)
 
         # Step 12: Strategy Memory.
         self._update_memory(record, parent_id, interpretation, admitted, iteration, island)
 
         parent.attempts.append(record)
 
-        # Step 13: island scheduler.  Admitted edits are a regular evaluation;
-        # crashed and duplicate attempts are a visit with zero reward (Section 9).
+        # Step 13: island scheduler.  An admitted edit is a regular
+        # evaluation, exactly as AdaEvolve adds a child.  Failed attempts are
+        # reported once per iteration by the controller (record_failed_visit).
         if admitted:
             self.add(
                 child_program,
@@ -540,9 +604,22 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             )
         else:
             self.last_iteration = max(self.last_iteration, iteration)
-            if count_visit:
-                self.adapter.record_evaluation(island, float("-inf"))
         return record
+
+    def record_failed_visit(self, island: int) -> None:
+        """An iteration that ended with a crashed/duplicate attempt is one visit
+        of the island with zero reward (spec Section 9.2 / PUCT Section 10.2).
+
+        Only the UCB statistics are touched.  AdaEvolve's per-island adaptive
+        state (``total_evaluations``, which feeds the global productivity of
+        the island-spawning rule) is left alone, because AdaEvolve itself does
+        not count failed iterations there.
+        """
+        a = self.adapter
+        if 0 <= island < len(a.dimension_visits):
+            a.dimension_visits[island] += 1
+            a.decayed_visits[island] = a.decay * a.decayed_visits[island] + 1.0
+            a.dimension_rewards[island] = a.decay * a.dimension_rewards[island]
 
     def _update_memory(
         self,
@@ -558,11 +635,6 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         declared = self.peek_strategy(record.intent)
         sid: Optional[str] = declared["id"]
         description = (record.intent or {}).get("description") or ""
-
-        if not record.evidence:  # retried failure: name it for the attempt log only
-            record.strategy_id = sid
-            record.strategy_name = declared["name"]
-            return
 
         if declared["is_new"]:
             lesson = interpretation.get("lesson") if admitted else None
@@ -690,6 +762,7 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         for tree in self.trees:  # current config's hyperparameters take precedence
             tree.gamma, tree.kappa = self.gamma, self.kappa
             tree.rho, tree.epsilon = self.theta_decay, self.epsilon
+            tree.theta_mode, tree.theta_window = self.theta_mode, self.theta_window
         while len(self.trees) < self.num_islands:
             self.trees.append(self._new_tree(len(self.trees)))
         self.node_island = {nid: t.island for t in self.trees for nid in t.nodes}

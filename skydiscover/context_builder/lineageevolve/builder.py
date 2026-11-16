@@ -1,68 +1,64 @@
-"""Context builder for LineageEvolve (Section 8.6 of the method spec).
+"""Context builder for LineageEvolve.
 
-Prompt blocks, in order:
-  1. task/system message                     (unchanged)
-  2. selected parent: code, score, metrics, evaluator feedback (unchanged)
-  3. lineage: how this program was reached   (path trace)
-  4. already tried on this program           (attempt log)
-  5. lessons from other lineages
-  6. known dead ends on similar programs
-  7. context programs                        (unchanged, labelled C1..Cn)
-  8. strategy list
-  9. output instructions: intent header, then program or diff
+Uses AdaEvolve's prompt templates unchanged.  Only the content of the
+``{search_guidance}`` section (rendered right after "# Current Solution")
+differs: AdaEvolve puts evaluator feedback, paradigm guidance, sibling
+context and the retry error there; LineageEvolve puts evaluator feedback,
+the lineage context (path trace, attempt log, lessons, warnings), the
+strategy list, the intent-header instruction and the retry error.
 
-The controller passes the pre-rendered text blocks through ``context``:
-``lineage_context`` (blocks 3-6), ``strategy_list`` (block 8) and
-``intent_instructions`` (block 9).  Numeric search statistics are never
-shown to the mutation model.
+Context programs are labelled ``C1..Cn`` instead of ``Program 1..n`` so the
+intent header can cite them as sources.  Numeric search statistics are
+never shown to the mutation model.
 """
 
-from pathlib import Path
 from typing import Any, Dict, List, Union
 
-from skydiscover.config import Config
 from skydiscover.context_builder.adaevolve import AdaEvolveContextBuilder
-from skydiscover.context_builder.utils import TemplateManager
 from skydiscover.search.base_database import Program
 
 
 class LineageEvolveContextBuilder(AdaEvolveContextBuilder):
-    def __init__(self, config: Config):
-        super().__init__(config)
-        default_templates = str(Path(__file__).parent.parent / "default" / "templates")
-        adaevolve_templates = str(Path(__file__).parent.parent / "adaevolve" / "templates")
-        lineage_templates = str(Path(__file__).parent / "templates")
-        self.template_manager = TemplateManager(
-            default_templates,
-            adaevolve_templates,
-            lineage_templates,
-            self.context_config.template_dir,
-        )
-
-    def build_prompt(
+    def _build_search_guidance(
         self,
         current_program: Union[Program, Dict[str, Program]],
-        context: Dict[str, Any] = None,
-        **kwargs: Any,
-    ) -> Dict[str, str]:
-        context = context or {}
-        strategy_list = context.get("strategy_list") or ""
+        context: Dict[str, Any],
+    ) -> str:
+        parent_program = (
+            list(current_program.values())[0]
+            if isinstance(current_program, dict)
+            else current_program
+        )
+        sections: List[str] = []
+
+        # 1. Evaluator feedback from parent artifacts (as AdaEvolve)
+        feedback_section = self._format_evaluator_feedback(parent_program)
+        if feedback_section:
+            sections.append(feedback_section)
+
+        # 2. Lineage context, lessons and warnings
+        lineage_context = context.get("lineage_context")
+        if lineage_context:
+            sections.append(lineage_context)
+
+        # 3. Strategy list and intent header instruction
+        strategy_list = context.get("strategy_list")
         if strategy_list:
-            strategy_list = (
+            sections.append(
                 "# Strategy list\n"
                 "Existing strategies (id: name), for the `strategy` field of the intent header:\n"
                 + strategy_list
             )
-        for key in ("lineage_context", "strategy_list", "intent_instructions"):
-            kwargs.pop(key, None)
-        return super().build_prompt(
-            current_program,
-            context,
-            lineage_context=context.get("lineage_context") or "",
-            strategy_list=strategy_list,
-            intent_instructions=context.get("intent_instructions") or "",
-            **kwargs,
-        )
+        intent_instructions = context.get("intent_instructions")
+        if intent_instructions:
+            sections.append("# Required output header\n" + intent_instructions)
+
+        # 4. Error retry context (as AdaEvolve)
+        error_context = context.get("error_context")
+        if error_context:
+            sections.append(self._format_error_context(error_context))
+
+        return "\n\n".join(sections)
 
     def _format_single_context_program(
         self, program: Program, index: int, language: str, lines: list

@@ -24,6 +24,7 @@ _SEARCH_CHOICES = [
     "evox",
     "adaevolve",
     "lineageevolve",
+    "lineageevolve_puct",
     "best_of_n",
     "beam_search",
     "topk",

@@ -66,6 +66,8 @@ register_controller("adaevolve", AdaEvolveController)
 # LineageEvolve: AdaEvolve islands with lineage-tree selection and strategy memory
 register_database("lineageevolve", LineageEvolveDatabase)
 register_controller("lineageevolve", LineageEvolveController)
+register_database("lineageevolve_puct", LineageEvolveDatabase)
+register_controller("lineageevolve_puct", LineageEvolveController)
 
 # OpenEvolve Native
 register_database("openevolve_native", OpenEvolveNativeDatabase)

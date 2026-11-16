@@ -234,8 +234,9 @@ def intent_instructions(use_memory: bool = True, has_strategies: bool = True) ->
     else:
         strategy_line = "strategy: unspecified"
     return (
-        "FIRST, before any code or diff, output this intent header exactly once "
-        "(it is recorded before the score is known):\n\n"
+        "Your response MUST begin with this intent header, exactly once and before any "
+        "code or diff (it is recorded before the score is known). Context programs are "
+        "cited as C1, C2, ... and lessons/ideas by their S-ids.\n\n"
         "<intent>\n"
         f"{strategy_line}\n"
         "sources: [<ids of the lessons/ideas (S#) and context programs (C#) your edit draws on; "

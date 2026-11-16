@@ -53,6 +53,29 @@ def is_openai_reasoning_model(model_name: str, api_base: str) -> bool:
     return is_openai_api and model_name.lower().startswith(REASONING_MODEL_PREFIXES)
 
 
+def _message_text(content: Any) -> Optional[str]:
+    """Return the answer text of a chat message.
+
+    Most providers return a string.  Some (e.g. Mistral serving reasoning
+    models) return a list of typed parts such as
+    ``[{"type": "thinking", ...}, {"type": "text", "text": "..."}]``; only the
+    ``text`` parts are the answer, the ``thinking`` parts are dropped.
+    """
+    if content is None or isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for part in content:
+            if isinstance(part, dict):
+                kind, text = part.get("type"), part.get("text")
+            else:
+                kind, text = getattr(part, "type", None), getattr(part, "text", None)
+            if kind in (None, "text", "output_text") and isinstance(text, str):
+                texts.append(text)
+        return "".join(texts)
+    return str(content)
+
+
 class OpenAILLM(LLMInterface):
     """LLM backend using OpenAI-compatible APIs (Chat Completions + Responses)."""
 
@@ -239,7 +262,7 @@ class OpenAILLM(LLMInterface):
             USAGE.record(
                 self.model, getattr(response, "usage", None), seconds=time.time() - call_start
             )
-            return response.choices[0].message.content
+            return _message_text(response.choices[0].message.content)
         except (openai.BadRequestError, openai.APIStatusError) as exc:
             # Some Azure deployments only expose the Responses API.
             # Fall back transparently when Chat Completions is unsupported.

@@ -57,7 +57,7 @@ while True:
                 os.kill(pid, signal.SIGKILL); log(f"killed orphan evaluator {pid} (age {age}s)")
             except ProcessLookupError:
                 pass
-    runs = sorted(r[0] for r in rows if "skydiscover.cli" in r[4] and "config_viettel" in r[4])
+    runs = sorted(r[0] for r in rows if "skydiscover.cli" in r[4] and "--config" in r[4])
     paused &= set(runs)
     if not runs:
         log("no runs left; exiting"); break

@@ -304,3 +304,15 @@ def test_retried_failure_is_logged_but_not_evidence():
     db.commit_attempt(parent_id="init", island=0, iteration=1, status="crashed",
                       intent={}, prompt_sources={}, error="boom", candidate_hash="h2")
     assert root.beta == 2.0 and db.adapter.dimension_visits[0] == visits + 1
+
+
+def test_message_text_handles_part_lists():
+    from skydiscover.llm.openai import _message_text
+
+    assert _message_text("plain") == "plain"
+    assert _message_text(None) is None
+    parts = [
+        {"type": "thinking", "thinking": [{"type": "text", "text": "hidden"}], "closed": True},
+        {"type": "text", "text": "answer ```python\nx=1\n```"},
+    ]
+    assert _message_text(parts) == "answer ```python\nx=1\n```"

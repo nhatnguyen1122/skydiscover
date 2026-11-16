@@ -5,9 +5,10 @@ import signal
 import sys
 import time
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from skydiscover.config import Config, build_output_dir, load_config
+from skydiscover.llm.usage import USAGE
 from skydiscover.search.base_database import Program
 from skydiscover.search.default_discovery_controller import (
     DiscoveryController,
@@ -119,6 +120,8 @@ class Runner:
             Best Program found, or None if no valid programs were produced.
         """
         max_iterations = iterations if iterations is not None else self.config.max_iterations
+        run_started_at = time.time()
+        usage_at_start = USAGE.snapshot()
 
         start_iteration = 0
         if checkpoint_path and os.path.exists(checkpoint_path):
@@ -221,6 +224,7 @@ class Runner:
 
         # Get the best program
         best_program = self._get_best_program()
+        self._save_run_summary(run_started_at, usage_at_start, max_iterations, best_program)
         if best_program:
             status = "early stopping" if early_stopped else "completed"
             logger.info(f"Discovery {status}. Best: {format_metrics(best_program.metrics)}")
@@ -439,6 +443,44 @@ class Runner:
             if prog:
                 return prog
         return self.database.get_best_program()
+
+    def _save_run_summary(
+        self,
+        run_started_at: float,
+        usage_at_start: Dict[str, Any],
+        max_iterations: int,
+        best_program: Optional[Program],
+    ) -> None:
+        """Write wall-clock runtime and LLM token usage for this run."""
+        try:
+            usage_now = USAGE.snapshot()
+            usage = USAGE.delta(usage_at_start)
+            usage["by_model"] = usage_now.get("by_model", {})
+            usage["calls_without_usage"] = usage_now.get("calls_without_usage", 0)
+            summary = {
+                "search": self.name,
+                "max_iterations": max_iterations,
+                "wall_clock_seconds": time.time() - run_started_at,
+                "started_at": run_started_at,
+                "finished_at": time.time(),
+                "token_usage": usage,
+                "best_program_id": best_program.id if best_program else None,
+                "best_metrics": best_program.metrics if best_program else None,
+                "best_iteration": best_program.iteration_found if best_program else None,
+            }
+            from skydiscover.search.utils.checkpoint_manager import SafeJSONEncoder
+
+            with open(os.path.join(self.output_dir, "run_summary.json"), "w") as f:
+                json.dump(summary, f, indent=2, cls=SafeJSONEncoder)
+            total = usage["total"]
+            logger.info(
+                f"Run summary: {summary['wall_clock_seconds']:.1f}s wall clock, "
+                f"{int(total.get('calls', 0))} LLM calls, "
+                f"{int(total.get('prompt_tokens', 0))} prompt + "
+                f"{int(total.get('completion_tokens', 0))} completion tokens"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to write run summary: {e}")
 
     def _save_best_program(self, program: Program) -> None:
         best_dir = os.path.join(self.output_dir, "best")

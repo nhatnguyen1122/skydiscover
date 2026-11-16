@@ -26,6 +26,7 @@ from skydiscover.context_builder.adaevolve import AdaEvolveContextBuilder
 from skydiscover.context_builder.default import DefaultContextBuilder
 from skydiscover.evaluation.llm_judge import LLMJudge
 from skydiscover.llm.llm_pool import LLMPool
+from skydiscover.llm.usage import USAGE, usage_purpose
 from skydiscover.search.adaevolve.paradigm import ParadigmGenerator
 from skydiscover.search.base_database import Program
 from skydiscover.search.default_discovery_controller import (
@@ -199,6 +200,16 @@ class AdaEvolveController(DiscoveryController):
                 "eval_time_seconds": eval_time,
             }
 
+            # Token usage: this iteration (all LLM calls, incl. retries and
+            # paradigm generation) and cumulative for the whole run.
+            stats["iteration_result"]["token_usage"] = getattr(
+                self, "_last_iteration_usage", None
+            )
+            stats["cumulative_token_usage"] = USAGE.snapshot()["total"]
+            run_start = getattr(self, "_run_start_time", None)
+            if run_start is not None:
+                stats["elapsed_seconds"] = time.time() - run_start
+
             # Add child program info if available
             if child_program:
                 stats["iteration_result"]["child_program"] = {
@@ -238,6 +249,7 @@ class AdaEvolveController(DiscoveryController):
 
         # Set up comprehensive JSON logging for iteration stats
         self._setup_iteration_stats_logging()
+        self._run_start_time = time.time()
 
         # Ensure all islands are seeded
         self._ensure_all_islands_seeded()
@@ -300,15 +312,19 @@ class AdaEvolveController(DiscoveryController):
     async def _run_iteration(self, iteration: int, checkpoint_callback) -> None:
         """Execute one evolution iteration."""
         iteration_start_time = time.time()
+        usage_before = USAGE.snapshot()
 
         # Check for global paradigm stagnation
         # Use database flag directly to stay in sync after checkpoint load
         if self.database.use_paradigm_breakthrough and self.database.is_paradigm_stagnating():
-            await self._generate_paradigms_if_needed()
+            with usage_purpose("meta_guidance"):
+                await self._generate_paradigms_if_needed()
 
-        result = await self._run_normal_step(iteration)
+        with usage_purpose("mutation"):
+            result = await self._run_normal_step(iteration)
 
         iteration_time = time.time() - iteration_start_time
+        self._last_iteration_usage = USAGE.delta(usage_before)
 
         if result.error:
             logger.warning(f"Iteration {iteration}: {result.error}")

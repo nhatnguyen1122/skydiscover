@@ -450,6 +450,48 @@ class AdaEvolveDatabaseConfig(DatabaseConfig):
 
 
 @dataclass
+class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
+    """LineageEvolve: AdaEvolve islands with lineage-tree selection.
+
+    Inherits every AdaEvolve island/migration/spawning setting.  AdaEvolve's
+    ``use_paradigm_breakthrough`` is superseded by ``use_meta_guidance``.
+    """
+
+    # Hyperparameters (method spec, Section 12)
+    gamma: float = 0.9  # genealogical decay of evidence
+    kappa: float = 2.0  # strength of the inherited prior
+    theta_decay: float = 0.9  # rho: EMA factor of the step scale theta_k
+    epsilon: float = 0.0  # evaluator noise level (per task)
+    tau: float = 1.0  # posterior sharpening
+    tau_schedule: str = "constant"  # "constant" or "budget" (tau = H / (H - t))
+    k_plus: int = 2  # lessons to try
+    k_minus: int = 1  # warnings
+    path_recent: int = 5  # h: recent edits kept in the path trace
+    stagnation_window: int = 10  # W: attempts without progress before meta-guidance
+    meta_cooldown: Optional[int] = None  # attempts between meta-guidance calls (default W)
+    meta_num_ideas: int = 3
+    strategy_list_cap: int = 30
+    interpreter_temperature: float = 0.0
+    interpreter_max_tokens: int = 4000
+    random_seed: Optional[int] = 42
+
+    # Component switches (each independently switchable)
+    use_lineage_reward: bool = True
+    use_ancestor_backup: bool = True
+    use_inherited_prior: bool = True
+    use_source_attribution: bool = True
+    use_lineage_context: bool = True
+    use_strategy_memory: bool = True
+    use_dedup: bool = True
+    use_meta_guidance: bool = True
+
+    # Protocol parity with AdaEvolve: retry a crashed/duplicate candidate on
+    # the same parent within the iteration (up to max_error_retries times).
+    retry_candidate_failures: bool = True
+    retry_failure_evidence: str = "final"  # "final" or "all"
+
+
+@dataclass
 class OpenEvolveNativeDatabaseConfig(DatabaseConfig):
     """OpenEvolve Native: MAP-Elites + island-based search config."""
 
@@ -508,6 +550,7 @@ _DB_CONFIG_BY_TYPE: Dict[str, type] = {
     "best_of_n": BestOfNDatabaseConfig,
     "topk": DatabaseConfig,
     "adaevolve": AdaEvolveDatabaseConfig,
+    "lineageevolve": LineageEvolveDatabaseConfig,
     "openevolve_native": OpenEvolveNativeDatabaseConfig,
     "gepa_native": GEPANativeDatabaseConfig,
     "claude_code": ClaudeCodeConfig,

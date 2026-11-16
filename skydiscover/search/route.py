@@ -24,6 +24,8 @@ from skydiscover.search.evox.controller import CoEvolutionController
 from skydiscover.search.evox.database.search_strategy_db import SearchStrategyDatabase
 from skydiscover.search.gepa_native.controller import GEPANativeController
 from skydiscover.search.gepa_native.database import GEPANativeDatabase
+from skydiscover.search.lineageevolve.controller import LineageEvolveController
+from skydiscover.search.lineageevolve.database import LineageEvolveDatabase
 from skydiscover.search.openevolve_native.database import OpenEvolveNativeDatabase
 from skydiscover.search.registry import (
     _CONTROLLER_REGISTRY,
@@ -60,6 +62,10 @@ register_database("topk", TopKDatabase)
 # AdaEvolve
 register_database("adaevolve", AdaEvolveDatabase)
 register_controller("adaevolve", AdaEvolveController)
+
+# LineageEvolve: AdaEvolve islands with lineage-tree selection and strategy memory
+register_database("lineageevolve", LineageEvolveDatabase)
+register_controller("lineageevolve", LineageEvolveController)
 
 # OpenEvolve Native
 register_database("openevolve_native", OpenEvolveNativeDatabase)

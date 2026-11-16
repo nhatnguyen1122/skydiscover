@@ -5,6 +5,7 @@ import base64
 import logging
 import os
 import tempfile
+import time
 import uuid as _uuid
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -13,6 +14,7 @@ import openai
 
 from skydiscover.config import LLMModelConfig
 from skydiscover.llm.base import LLMInterface, LLMResponse
+from skydiscover.llm.usage import USAGE
 from skydiscover.llm.responses_utils import (
     convert_messages_to_responses_input,
     extract_responses_output,
@@ -230,8 +232,12 @@ class OpenAILLM(LLMInterface):
     async def _call_api(self, params: Dict[str, Any]) -> str:
         loop = asyncio.get_running_loop()
         try:
+            call_start = time.time()
             response = await loop.run_in_executor(
                 None, lambda: self.client.chat.completions.create(**params)
+            )
+            USAGE.record(
+                self.model, getattr(response, "usage", None), seconds=time.time() - call_start
             )
             return response.choices[0].message.content
         except (openai.BadRequestError, openai.APIStatusError) as exc:
@@ -266,9 +272,11 @@ class OpenAILLM(LLMInterface):
             resp_params["reasoning"] = {"effort": params["reasoning_effort"]}
 
         loop = asyncio.get_running_loop()
+        call_start = time.time()
         response = await loop.run_in_executor(
             None, lambda: self.client.responses.create(**resp_params)
         )
+        USAGE.record(self.model, getattr(response, "usage", None), seconds=time.time() - call_start)
         text, _ = self._extract_responses_output(response)
         return text or ""
 
@@ -324,7 +332,11 @@ class OpenAILLM(LLMInterface):
 
         for attempt in range(retries + 1):
             try:
+                call_start = time.time()
                 response = await asyncio.wait_for(self._call_responses_api(params), timeout=timeout)
+                USAGE.record(
+                    self.model, getattr(response, "usage", None), seconds=time.time() - call_start
+                )
                 text, image_b64, _ = extract_responses_output(response)
 
                 image_path = None

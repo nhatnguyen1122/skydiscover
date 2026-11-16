@@ -469,6 +469,8 @@ class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
     path_recent: int = 5  # h: recent edits kept in the path trace
     stagnation_window: int = 8  # W: attempts without improvement before meta-guidance
     stagnation_signal: str = "island_best"  # "island_best" or "progress" (spec)
+    stagnation_min_rel_improvement: float = 1e-3  # smaller island-best gains count as stagnation
+    theta_min_rel: float = 2e-3  # floor on theta relative to |J*| (0 = spec)
     theta_mode: str = "window"  # "window" (median of recent gains) or "ema" (spec)
     theta_window: int = 5
     keep_score_clones: bool = False  # spec: True (every admitted child is a node)

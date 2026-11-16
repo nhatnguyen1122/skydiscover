@@ -421,3 +421,21 @@ def test_score_clone_is_recorded_but_not_a_node():
     db2.commit_attempt(parent_id="init", island=0, iteration=1, status="admitted",
                        intent={}, prompt_sources={}, child_program=prog("c", 1.0, "x = 5", "init"))
     assert "c" in db2.trees[0].nodes
+
+
+def test_tiny_island_best_gains_count_as_stagnation():
+    t = LineageTree(0, stagnation_rel=1e-3)
+    t.add_root("r", 0.79)
+    for i in range(3):  # +0.0004 on 0.79 is ~5e-4 relative: a plateau
+        t.update_scalars(rec(i, "r", score=0.79 + 0.0004 * (i + 1), pscore=0.79 + 0.0004 * i))
+    assert t.attempts_since_best == 3 and t.attempts_since_progress == 0
+    t.update_scalars(rec(9, "r", score=0.80, pscore=0.7912))  # +1.1% relative
+    assert t.attempts_since_best == 0
+
+
+def test_theta_floor_limits_individual_penalty():
+    t = LineageTree(0, theta_min_rel=2e-3)
+    t.add_root("r", 0.86)
+    t.theta = 0.0002
+    assert t.effective_theta() == pytest.approx(0.86 * 2e-3)
+    assert t.reward_of(0.85) == pytest.approx(-0.01 / (0.86 * 2e-3))

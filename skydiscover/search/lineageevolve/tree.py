@@ -154,6 +154,8 @@ class LineageTree:
         epsilon: float = 0.0,
         theta_mode: str = "window",
         theta_window: int = 5,
+        stagnation_rel: float = 0.0,
+        theta_min_rel: float = 0.0,
     ) -> None:
         self.island = island
         self.gamma = gamma
@@ -166,6 +168,13 @@ class LineageTree:
         # from the initial program, which flattens the Individual Reward.
         self.theta_mode = theta_mode
         self.theta_window = max(1, int(theta_window))
+        # Minimum relative improvement of the island best that resets the
+        # stagnation counter (tiny gains on a plateau do not count).
+        self.stagnation_rel = max(0.0, float(stagnation_rel))
+        # Floor on the step scale relative to |J*_k|: on a plateau the recent
+        # gains become tiny and, without a floor, any node slightly behind the
+        # best gets an Individual Reward of -50 or worse and is never revisited.
+        self.theta_min_rel = max(0.0, float(theta_min_rel))
 
         self.nodes: Dict[str, LineageNode] = {}
         self.roots: List[str] = []
@@ -275,11 +284,18 @@ class LineageTree:
     def individual_reward(self, node: LineageNode) -> float:
         return self.reward_of(node.score)
 
+    def effective_theta(self) -> Optional[float]:
+        if self.theta is None or self.theta <= 0.0:
+            return None
+        floor = self.theta_min_rel * abs(self.best_score) if math.isfinite(self.best_score) else 0.0
+        return max(self.theta, floor)
+
     def reward_of(self, score: float) -> float:
         """``(J - J*_k) / theta_k``, or 0 while theta_k is undefined."""
-        if self.theta is None or self.theta <= 0.0:
+        theta = self.effective_theta()
+        if theta is None:
             return 0.0
-        return (score - self.best_score) / self.theta
+        return (score - self.best_score) / theta
 
     def is_progress(self, parent_score: float, child_score: float) -> bool:
         return child_score > parent_score + numerical_tolerance(self.epsilon, parent_score)
@@ -376,10 +392,13 @@ class LineageTree:
             self.num_progress += 1
         else:
             self.attempts_since_progress += 1
+        margin = numerical_tolerance(self.epsilon, self.best_score)
+        if math.isfinite(self.best_score):
+            margin = max(margin, self.stagnation_rel * abs(self.best_score))
         improved_best = (
             record.status == STATUS_ADMITTED
             and record.score is not None
-            and record.score > self.best_score + numerical_tolerance(self.epsilon, self.best_score)
+            and record.score > self.best_score + margin
         )
         if record.status == STATUS_ADMITTED and record.score is not None:
             if record.score > self.best_score:

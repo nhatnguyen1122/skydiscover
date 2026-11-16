@@ -82,6 +82,8 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         self.stagnation_signal = str(getattr(config, "stagnation_signal", "island_best"))
         self.theta_mode = str(getattr(config, "theta_mode", "window"))
         self.theta_window = int(getattr(config, "theta_window", 5))
+        self.stagnation_rel = float(getattr(config, "stagnation_min_rel_improvement", 1e-3))
+        self.theta_min_rel = float(getattr(config, "theta_min_rel", 2e-3))
         # A child with exactly its parent's score adds no new expandable node
         # (it is still recorded as a no-progress attempt and kept as a program).
         self.keep_score_clones = bool(getattr(config, "keep_score_clones", False))
@@ -169,6 +171,8 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             epsilon=self.epsilon,
             theta_mode=self.theta_mode,
             theta_window=self.theta_window,
+            stagnation_rel=self.stagnation_rel,
+            theta_min_rel=self.theta_min_rel,
         )
 
     def _ensure_tree(self, island: int) -> LineageTree:
@@ -763,6 +767,8 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
             tree.gamma, tree.kappa = self.gamma, self.kappa
             tree.rho, tree.epsilon = self.theta_decay, self.epsilon
             tree.theta_mode, tree.theta_window = self.theta_mode, self.theta_window
+            tree.stagnation_rel = self.stagnation_rel
+            tree.theta_min_rel = self.theta_min_rel
         while len(self.trees) < self.num_islands:
             self.trees.append(self._new_tree(len(self.trees)))
         self.node_island = {nid: t.island for t in self.trees for nid in t.nodes}

@@ -497,7 +497,9 @@ class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
     # Tree policy: "thompson" (LineageEvolve_method_spec.md) or "puct"
     # (LineageEvolve_method_spec_puct.md).  The fields below are used by PUCT.
     selection_policy: str = "thompson"
-    c0: float = 1.0  # PUCT exploration strength, decays linearly to 0 over the budget
+    c0: float = 1.0  # PUCT exploration strength, decays linearly over the budget
+    c_min_frac: float = 0.0  # floor of the decayed exploration strength (fraction of c0)
+    paradigm_parent: str = "global_best"  # "global_best" (AdaEvolve) or "tree" (tree policy)
     eta: float = 0.25  # uniform floor of the PUCT prior policy
     retrieval_mode: Optional[str] = None  # "thompson"/"ucb"; default follows the policy
     use_individual_reward: bool = True

@@ -464,3 +464,19 @@ def test_paradigm_mode_matches_adaevolve_and_links_memory():
     assert db.get_current_paradigm() is None
     lineage_db = make_db(meta_guidance_mode="lineage")
     assert lineage_db.paradigm_tracker is None and lineage_db.use_meta_guidance
+
+
+def test_exploration_floor_and_paradigm_parent_option():
+    from skydiscover.config import LineageEvolvePUCTDatabaseConfig
+
+    cfg = LineageEvolvePUCTDatabaseConfig(num_islands=1, population_size=20, c_min_frac=0.3,
+                                          paradigm_parent="tree")
+    db = LineageEvolveDatabase("lineageevolve_puct", cfg)
+    db.total_iterations, db.current_iteration = 100, 95
+    assert db.current_c() == pytest.approx(0.3)
+    db.current_iteration = 10
+    assert db.current_c() == pytest.approx(0.9)
+    assert db.paradigm_parent == "tree" and db.use_paradigm_breakthrough
+    with pytest.raises(ValueError):
+        LineageEvolveDatabase("lineageevolve_puct",
+                              LineageEvolvePUCTDatabaseConfig(num_islands=1, paradigm_parent="x"))

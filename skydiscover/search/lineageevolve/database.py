@@ -116,6 +116,14 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         if self.selection_policy not in ("thompson", "puct"):
             raise ValueError(f"Unknown selection_policy: {self.selection_policy}")
         self.c0 = float(getattr(config, "c0", 1.0))
+        # Lower bound of the decayed exploration strength, as a fraction of c0
+        # (0 = spec: c_t decays linearly to 0 over the budget).
+        self.c_min_frac = float(getattr(config, "c_min_frac", 0.0))
+        # Where an active paradigm is applied: "global_best" (AdaEvolve) or
+        # "tree" (the parent chosen by the tree policy).
+        self.paradigm_parent = str(getattr(config, "paradigm_parent", "global_best")).lower()
+        if self.paradigm_parent not in ("global_best", "tree"):
+            raise ValueError(f"Unknown paradigm_parent: {self.paradigm_parent}")
         self.eta = float(getattr(config, "eta", 0.25))
         self.puct_switches = {
             "lineage_reward": self.use_lineage_reward,
@@ -344,7 +352,7 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         if not self.total_iterations:
             return self.c0
         frac = min(max(self.current_iteration / self.total_iterations, 0.0), 1.0)
-        return self.c0 * (1.0 - frac)
+        return self.c0 * max(1.0 - frac, self.c_min_frac)
 
     def sample(
         self,

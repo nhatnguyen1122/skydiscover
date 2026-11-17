@@ -568,7 +568,7 @@ class LineageEvolveController(DiscoveryController):
                 if self.database.use_paradigm_breakthrough
                 else None
             )
-            if paradigm:
+            if paradigm and self.database.paradigm_parent == "global_best":
                 best_node = self.database.paradigm_parent_node()
                 if best_node is not None:
                     best_program = self.database.programs[best_node.id]

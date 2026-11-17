@@ -1,0 +1,42 @@
+checkpoint_interval: 10
+diff_based_generation: true
+evaluator:
+  max_retries: 3
+  timeout: 360
+language: python
+llm:
+  api_base: https://api.mistral.ai/v1
+  api_key: ${MISTRAL_API_KEY}
+  evaluator_models:
+  - api_base: https://api.mistral.ai/v1
+    api_key: ${MISTRAL_API_KEY}
+    name: zai-glm-5-3-flash
+    weight: 1.0
+  guide_models:
+  - api_base: https://api.mistral.ai/v1
+    api_key: ${MISTRAL_API_KEY}
+    name: zai-glm-5-3-flash
+    weight: 1.0
+  max_tokens: 8000
+  models:
+  - api_base: https://api.mistral.ai/v1
+    api_key: ${MISTRAL_API_KEY}
+    name: zai-glm-5-3-flash
+    weight: 1.0
+  reasoning_effort: low
+  retries: 3
+  retry_delay: 5
+  temperature: 0.2
+  timeout: 300
+max_iterations: 100
+max_solution_length: 60000
+prompt:
+  system_message: "SETTING:\nYou are an expert computational geometer and optimization specialist with deep expertise in circle packing problems, geometric optimization algorithms, and constraint satisfaction.\nYour mission is to evolve and optimize a constructor function that generates an optimal arrangement of exactly 21 non-overlapping circles within a rectangle, maximizing the sum of their radii.\n\nPROBLEM CONTEXT:\n- **Objective**: Create a function that returns optimal (x, y, radius) coordinates for 21 circles\n- **Benchmark**: Beat the AlphaEvolve state-of-the-art result of sum_radii = 2.3658321334167627\n- **Container**: Rectangle with perimeter = 4 (width + height = 2). You may choose optimal width/height ratio\n- **Constraints**: \n  * All circles must be fully contained within rectangle boundaries\n  * No circle overlaps (distance between centers ≥ sum of their radii)\n  * Exactly 21 circles required\n  * All radii must be positive\n\nPERFORMANCE METRICS:\n1. **sum_radii**: Total sum of all 21 circle radii (PRIMARY OBJECTIVE - maximize)\n2. **combined_score**: sum_radii / 2.3658321334167627 (progress toward beating benchmark)  \n3. **eval_time**: Execution time in seconds (keep reasonable, prefer accuracy over speed)\n\nTECHNICAL REQUIREMENTS:\n- **Determinism**: Use fixed random seeds if employing stochastic methods for reproducibility\n- **Error handling**: Graceful handling of optimization failures or infeasible configurations\n- **Memory efficiency**: Avoid excessive memory allocation for distance matrix computations\n- **Scalability**: Design with potential extension to different circle counts in mind\n"
+search:
+  database:
+    archive_size: 25
+    num_islands: 4
+    population_size: 60
+    paradigm_parent: tree
+  num_context_programs: 3
+  type: lineageevolve_puct

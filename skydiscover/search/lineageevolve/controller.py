@@ -48,6 +48,7 @@ from skydiscover.search.default_discovery_controller import (
 from skydiscover.search.lineageevolve import prompt_blocks
 from skydiscover.search.lineageevolve.attribution import (
     build_inventory,
+    context_overlap,
     code_hash,
     compute_shares,
     parse_intent,
@@ -1022,6 +1023,7 @@ class LineageEvolveController(DiscoveryController):
             outcome = "no change"
         lessons = lineage.get("lessons") or []
         context_code = {cid: p.solution for cid, p in lineage["context_ids"].items()}
+        lean_interpreter = db.interpreter_context == "matched"
         prompt = self.interpreter.build_prompt(
             units=units,
             intent=intent,
@@ -1035,7 +1037,15 @@ class LineageEvolveController(DiscoveryController):
                 }
                 for it in lessons
             ],
-            context_programs=context_code if want_attribution else {},
+            context_programs=(
+                context_code if (want_attribution and not lean_interpreter) else {}
+            ),
+            context_matches=(
+                context_overlap(units, context_code, parent.solution)
+                if (want_attribution and lean_interpreter)
+                else None
+            ),
+            context_ids=list(context_code) if lean_interpreter else None,
             parent_score=parent_score,
             child_score=child_score,
             outcome=outcome,

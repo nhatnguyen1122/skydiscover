@@ -501,6 +501,7 @@ class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
     c_min_frac: float = 0.0  # floor of the decayed exploration strength (fraction of c0)
     paradigm_parent: str = "global_best"  # "global_best" (AdaEvolve) or "tree" (tree policy)
     import_as_roots: bool = True  # False: migrants are context-only, not expandable roots
+    interpreter_context: str = "full"  # "full" or "matched" (no context code in the interpreter prompt)
     eta: float = 0.25  # uniform floor of the PUCT prior policy
     retrieval_mode: Optional[str] = None  # "thompson"/"ucb"; default follows the policy
     use_individual_reward: bool = True

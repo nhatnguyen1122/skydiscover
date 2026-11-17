@@ -500,3 +500,19 @@ def test_context_only_imports():
     db2.add(Program(id="m", solution="x = 1", metrics={"combined_score": 2.0}, parent_id="init",
                     metadata={"migrated_from": 0}), target_island=1)
     assert "m" in db2.trees[1].nodes
+
+
+def test_lean_interpreter_prompt_omits_context_code():
+    from skydiscover.search.lineageevolve.attribution import context_overlap
+    from skydiscover.search.lineageevolve.interpreter import EditInterpreter
+
+    units = build_inventory(PARENT, CHILD)
+    ctx = {"C1": "def g():\n    x = borrowed()\n    y = borrowed2()\n    SECRET_MARKER = 1\n"}
+    m = context_overlap(units, ctx, PARENT)
+    assert m == {"U2": {"C1": pytest.approx(2 / 3)}}
+    interp = EditInterpreter(llm_pool=None)
+    lean = interp.build_prompt(units, {"sources": []}, [], {}, 1.0, 2.0, "improved", {"label": "x"},
+                               context_matches=m, context_ids=["C1"])
+    full = interp.build_prompt(units, {"sources": []}, [], ctx, 1.0, 2.0, "improved", {"label": "x"})
+    assert "SECRET_MARKER" not in lean and "SECRET_MARKER" in full
+    assert "C1 67%" in lean

@@ -75,7 +75,14 @@ class EditInterpreter:
         outcome: str,
         declared_strategy: Dict[str, Any],
         want_attribution: bool = True,
+        context_matches: Optional[Dict[str, Dict[str, float]]] = None,
+        context_ids: Optional[List[str]] = None,
     ) -> str:
+        """Interpreter prompt.  With ``context_matches`` (lean mode) the code of
+        the context programs is not included; instead each unit lists the
+        fraction of its added lines found in each context program (computed
+        deterministically), which is what label validation uses anyway."""
+        lean = context_matches is not None
         parts: List[str] = []
         parts.append("# Edit under analysis")
         parts.append(f"- Parent score: {parent_score:.6f}")
@@ -97,11 +104,16 @@ class EditInterpreter:
                     parts.append(f"Summary: {s['summary']}")
                 if s.get("mechanism"):
                     parts.append(f"Mechanism: {s['mechanism']}")
-        if context_programs:
+        if lean and context_ids:
+            parts.append(
+                f"## Context programs {', '.join(context_ids)} (code not shown; for each changed "
+                "unit below, the share of its added lines copied from each context program is given)"
+            )
+        elif context_programs:
             for cid, code in context_programs.items():
                 parts.append(f"## {cid} (context program)")
                 parts.append("```\n" + _clip(code, 6000) + "\n```")
-        if not strategy_sources and not context_programs:
+        if not strategy_sources and not context_programs and not (lean and context_ids):
             parts.append("(none)")
         parts.append("")
 
@@ -115,6 +127,10 @@ class EditInterpreter:
             parts.append("```\n" + (u.excerpt(u.removed) or "(nothing)") + "\n```")
             parts.append("Added in child:")
             parts.append("```\n" + (u.excerpt(u.added) or "(nothing)") + "\n```")
+            if lean:
+                m = (context_matches or {}).get(u.id) or {}
+                copied = ", ".join(f"{cid} {frac:.0%}" for cid, frac in sorted(m.items()))
+                parts.append(f"Added lines copied from context programs: {copied or 'none'}")
         parts.append("")
 
         parts.append("# Your task")

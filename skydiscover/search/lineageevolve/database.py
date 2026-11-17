@@ -125,6 +125,9 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         # Migration imports become expandable lineage roots (spec) or are
         # kept as context-only programs (False).
         self.import_as_roots = bool(getattr(config, "import_as_roots", True))
+        # Edit Interpreter input: "full" (context-program code in the prompt)
+        # or "matched" (only the deterministic per-unit copy fractions).
+        self.interpreter_context = str(getattr(config, "interpreter_context", "full")).lower()
         if self.paradigm_parent not in ("global_best", "tree"):
             raise ValueError(f"Unknown paradigm_parent: {self.paradigm_parent}")
         self.eta = float(getattr(config, "eta", 0.25))

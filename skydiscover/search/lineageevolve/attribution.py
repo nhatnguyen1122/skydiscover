@@ -340,3 +340,28 @@ def compute_shares(
         else:
             lineage += u.size
     return lineage / total, {k: v / total for k, v in ext.items()}
+
+
+def context_overlap(
+    units: List[ChangedUnit], context_programs: Dict[str, str], parent_code: str
+) -> Dict[str, Dict[str, float]]:
+    """Per unit: fraction of its added lines (whitespace-normalised) that occur
+    in each context program and not in the parent.  Only non-zero entries."""
+    parent_lines = {normalize_line(ln) for ln in (parent_code or "").split("\n") if ln.strip()}
+    ctx_lines = {
+        cid: {normalize_line(ln) for ln in (code or "").split("\n") if ln.strip()}
+        for cid, code in context_programs.items()
+    }
+    out: Dict[str, Dict[str, float]] = {}
+    for u in units:
+        added = [normalize_line(ln) for ln in u.added if ln.strip()]
+        if not added:
+            continue
+        fr = {}
+        for cid, lines in ctx_lines.items():
+            hits = sum(1 for ln in added if ln in lines and ln not in parent_lines)
+            if hits:
+                fr[cid] = hits / len(added)
+        if fr:
+            out[u.id] = fr
+    return out

@@ -53,6 +53,20 @@ def load_run(run: Path) -> dict:
             statuses[str(err).split(":")[0].strip()[:40]] += 1
     usage = (summary.get("token_usage") or {}).get("total") or {}
     by_purpose = (summary.get("token_usage") or {}).get("by_purpose") or {}
+    wall = summary.get("wall_clock_seconds")
+    if not summary:
+        # Run stopped early: take cumulative usage / elapsed time from the
+        # last line of the per-iteration logs.
+        for pattern in ("lineageevolve_iterations_*.jsonl", "adaevolve_iteration_stats_*.jsonl"):
+            files = sorted(run.glob(pattern))
+            if not files:
+                continue
+            lines = [ln for ln in files[-1].read_text().splitlines() if ln.strip()]
+            if lines:
+                last = json.loads(lines[-1])
+                usage = last.get("cumulative_token_usage") or usage
+                wall = last.get("elapsed_seconds") or wall
+                break
     at = {}
     for m in MARKS:
         vals = [v for k, v in curve.items() if k <= m and v is not None]
@@ -61,12 +75,13 @@ def load_run(run: Path) -> dict:
         "run": run.name,
         "finished": bool(summary),
         "iterations_logged": last_it,
-        "score": metrics.get("combined_score")
-        if metrics.get("combined_score") is not None
-        else max((v for v in curve.values() if v is not None), default=None),
+        "score": max(
+            [v for v in [metrics.get("combined_score")] + list(curve.values()) if isinstance(v, (int, float))],
+            default=None,
+        ),
         "test_score": metrics.get("test_combined_score"),
         "best_iteration": best.get("iteration"),
-        "wall_clock_s": summary.get("wall_clock_seconds"),
+        "wall_clock_s": wall,
         "llm_calls": usage.get("calls"),
         "prompt_tokens": usage.get("prompt_tokens"),
         "completion_tokens": usage.get("completion_tokens"),
@@ -118,15 +133,15 @@ def main() -> None:
                     f"{fmt(r['prompt_tokens'])} | {fmt(r['completion_tokens'])} | {fmt(r['total_tokens'])} |"
                 )
     L += ["", "## Mean over runs", "",
-          "| Benchmark | Method | Runs | Mean best | Max best | Mean wall clock (min) | Mean LLM calls | Mean total tokens |",
-          "|---|---|---|---|---|---|---|---|"]
+          "| Benchmark | Method | Runs | Mean best | Min best | Max best | Mean wall clock (min) | Mean LLM calls | Mean total tokens |",
+          "|---|---|---|---|---|---|---|---|---|"]
     for b, methods in data.items():
         for m, runs in methods.items():
             scores = [r["score"] for r in runs if isinstance(r["score"], (int, float))]
             wc = mean([r["wall_clock_s"] for r in runs])
             L.append(
                 f"| {ALIAS.get(b, b)} | {m} | {len(runs)} | {fmt(mean(scores), 6)} | "
-                f"{fmt(max(scores) if scores else None, 6)} | {fmt(wc / 60 if wc else None, 1)} | "
+                f"{fmt(min(scores) if scores else None, 6)} | {fmt(max(scores) if scores else None, 6)} | {fmt(wc / 60 if wc else None, 1)} | "
                 f"{fmt(mean([r['llm_calls'] for r in runs]), 0)} | {fmt(mean([r['total_tokens'] for r in runs]), 0)} |"
             )
     L += ["", "## Iteration outcomes and token split", "",

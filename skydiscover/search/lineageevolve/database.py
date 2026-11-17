@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from skydiscover.config import DatabaseConfig
 from skydiscover.search.adaevolve.database import AdaEvolveDatabase
 from skydiscover.search.base_database import Program
-from skydiscover.search.lineageevolve.attribution import code_hash, token_set
+from skydiscover.search.lineageevolve.attribution import code_hash, snake_case, token_set
 from skydiscover.search.lineageevolve.memory import ORIGIN_EDIT, ORIGIN_META, StrategyMemory
 from skydiscover.search.lineageevolve.tree import (
     numerical_tolerance,
@@ -56,13 +56,23 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
     def __init__(self, name: str, config: DatabaseConfig):
         super().__init__(name, config)
 
-        # AdaEvolve's paradigm tracker (threshold on accumulated improvement
-        # signal) is replaced by the stagnation-window trigger of Section 8.5.
-        self.use_meta_guidance = bool(
-            getattr(config, "use_meta_guidance", getattr(config, "use_paradigm_breakthrough", True))
+        # Meta-guidance mode:
+        # - "paradigm" (default): AdaEvolve's paradigm breakthrough, unchanged
+        #   (global stagnation tracker, ideas generated from the global best,
+        #   each idea used max_uses times on the global best with a mandatory
+        #   "implement this" block).  Ideas are also entered into the Strategy
+        #   Memory so the intent header can cite them and attribution credits them.
+        # - "lineage": the spec's per-island trigger; ideas compete as lessons.
+        # - "off": no meta-guidance.
+        self.meta_guidance_mode = str(getattr(config, "meta_guidance_mode", "paradigm")).lower()
+        if self.meta_guidance_mode not in ("paradigm", "lineage", "off"):
+            raise ValueError(f"Unknown meta_guidance_mode: {self.meta_guidance_mode}")
+        self.use_meta_guidance = self.meta_guidance_mode == "lineage" and bool(
+            getattr(config, "use_meta_guidance", True)
         )
-        self.use_paradigm_breakthrough = False
-        self.paradigm_tracker = None
+        if self.meta_guidance_mode != "paradigm":
+            self.use_paradigm_breakthrough = False
+            self.paradigm_tracker = None
 
         # Hyperparameters (Section 12)
         self.gamma = float(getattr(config, "gamma", 0.9))
@@ -459,6 +469,62 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
     # Meta-guidance (Section 8.5)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # AdaEvolve paradigm, linked to the lineage tree and Strategy Memory
+    # ------------------------------------------------------------------
+
+    def set_paradigms(self, paradigms: List[Dict[str, Any]]) -> None:
+        """AdaEvolve's set_paradigms, plus one Strategy Memory item per idea."""
+        super().set_paradigms(paradigms)
+        if not self.use_strategy_memory:
+            return
+        for paradigm in paradigms:
+            name = snake_case(str(paradigm.get("idea") or ""))[:60] or "paradigm"
+            cautions = paradigm.get("cautions")
+            strategy = self.memory.create(
+                name,
+                summary=str(paradigm.get("idea") or "")[:600],
+                mechanism=str(paradigm.get("description") or "")[:600],
+                conditions=[str(cautions)[:300]] if cautions else [],
+                origin=ORIGIN_META,
+                iteration=self.current_iteration,
+                island=None,
+            )
+            paradigm["strategy_id"] = strategy.id
+
+    def paradigm_parent_node(self) -> Optional[LineageNode]:
+        """Node of the global best program (AdaEvolve applies a paradigm to it).
+
+        Falls back to the best node of the current island if the global best
+        is not a node (e.g. an archive-only program)."""
+        best = self.get_best_program()
+        if best is not None:
+            node = self.get_node(best.id)
+            if node is not None:
+                return node
+        tree = self.trees[self.current_island]
+        if not tree.nodes:
+            return None
+        return max(tree.nodes.values(), key=lambda n: n.score)
+
+    def select_for_paradigm(self, node: LineageNode) -> Dict[str, Any]:
+        """Make ``node`` the selected parent: the attempt belongs to its island,
+        and the selection path is its lineage path."""
+        self.current_island = node.island
+        tree = self.trees[node.island]
+        self.last_selection = {
+            "policy": "paradigm_best",
+            "node_id": node.id,
+            "island": node.island,
+            "path": [n.id for n in tree.path_from_root(node)],
+            "R": tree.reward_of(node.score),
+            "alpha": node.alpha,
+            "beta": node.beta,
+            "theta": tree.theta,
+            "best_score": tree.best_score,
+        }
+        return self.last_selection
+
     def should_trigger_meta(self, island: int) -> bool:
         if not self.use_meta_guidance or not self.use_strategy_memory:
             return False
@@ -746,8 +812,9 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
 
     def load(self, path: str) -> None:
         super().load(path)
-        self.use_paradigm_breakthrough = False
-        self.paradigm_tracker = None
+        if self.meta_guidance_mode != "paradigm":
+            self.use_paradigm_breakthrough = False
+            self.paradigm_tracker = None
 
         state_path = os.path.join(path, STATE_FILE)
         if not os.path.exists(state_path):

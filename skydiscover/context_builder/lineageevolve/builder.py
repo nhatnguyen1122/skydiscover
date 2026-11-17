@@ -4,8 +4,9 @@ Uses AdaEvolve's prompt templates unchanged.  Only the content of the
 ``{search_guidance}`` section (rendered right after "# Current Solution")
 differs: AdaEvolve puts evaluator feedback, paradigm guidance, sibling
 context and the retry error there; LineageEvolve puts evaluator feedback,
-the lineage context (path trace, attempt log, lessons, warnings), the
-strategy list, the intent-header instruction and the retry error.
+AdaEvolve's paradigm guidance (same text), the lineage context (path trace,
+attempt log, lessons, warnings), the strategy list, the intent-header
+instruction and the retry error.
 
 Context programs are labelled ``C1..Cn`` instead of ``Program 1..n`` so the
 intent header can cite them as sources.  Numeric search statistics are
@@ -36,12 +37,24 @@ class LineageEvolveContextBuilder(AdaEvolveContextBuilder):
         if feedback_section:
             sections.append(feedback_section)
 
-        # 2. Lineage context, lessons and warnings
+        # 2. Paradigm breakthrough guidance (exactly as AdaEvolve)
+        paradigm = context.get("paradigm")
+        if paradigm:
+            section = self._format_paradigm_guidance(paradigm, self.config.language or "python")
+            sid = context.get("paradigm_strategy_id")
+            if sid:
+                section += (
+                    f"\n\nIn the intent header, declare this breakthrough idea as strategy {sid} "
+                    f"and list {sid} in `sources`."
+                )
+            sections.append(section)
+
+        # 3. Lineage context, lessons and warnings
         lineage_context = context.get("lineage_context")
         if lineage_context:
             sections.append(lineage_context)
 
-        # 3. Strategy list and intent header instruction
+        # 4. Strategy list and intent header instruction
         strategy_list = context.get("strategy_list")
         if strategy_list:
             sections.append(
@@ -53,7 +66,7 @@ class LineageEvolveContextBuilder(AdaEvolveContextBuilder):
         if intent_instructions:
             sections.append("# Required output header\n" + intent_instructions)
 
-        # 4. Error retry context (as AdaEvolve)
+        # 5. Error retry context (as AdaEvolve)
         error_context = context.get("error_context")
         if error_context:
             sections.append(self._format_error_context(error_context))

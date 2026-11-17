@@ -490,6 +490,9 @@ class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
     use_strategy_memory: bool = True
     use_dedup: bool = True
     use_meta_guidance: bool = True
+    # "paradigm": AdaEvolve's paradigm breakthrough (default); "lineage": the
+    # spec's per-island meta-guidance as lessons; "off".
+    meta_guidance_mode: str = "paradigm"
 
     # Tree policy: "thompson" (LineageEvolve_method_spec.md) or "puct"
     # (LineageEvolve_method_spec_puct.md).  The fields below are used by PUCT.

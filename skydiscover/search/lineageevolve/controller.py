@@ -11,10 +11,13 @@ shows only the method changes:
 
 - parent selection by the lineage tree policy (Thompson or PUCT, chosen by
   ``search.database.selection_policy``) instead of explore/exploit sampling;
-- meta-guidance on island stagnation instead of AdaEvolve's paradigm
-  breakthrough (the paradigm tracker is disabled by the database);
+- AdaEvolve's paradigm breakthrough is kept unchanged (default
+  ``meta_guidance_mode: paradigm``); the paradigm's parent (global best) is
+  located in the lineage tree and each idea is also a Strategy Memory item
+  that the intent header can cite.  ``meta_guidance_mode: lineage`` uses the
+  spec's per-island meta-guidance instead;
 - lineage context, lessons/warnings, strategy list and the intent header in
-  the prompt instead of sibling context and paradigm guidance;
+  the prompt instead of sibling context;
 - pre-evaluation deduplication, attempt records for duplicate / crashed /
   admitted candidates, the Edit Interpreter, and the atomic commit of all
   search-state updates (``LineageEvolveDatabase.commit_attempt``).
@@ -558,6 +561,23 @@ class LineageEvolveController(DiscoveryController):
             parent_label = list(parent_dict.keys())[0]
             parent = list(parent_dict.values())[0]
 
+            # When paradigm is active, use best program as parent
+            # This ensures paradigm (designed from best) is applied to best, not random parent
+            paradigm = (
+                self.database.get_current_paradigm()
+                if self.database.use_paradigm_breakthrough
+                else None
+            )
+            if paradigm:
+                best_node = self.database.paradigm_parent_node()
+                if best_node is not None:
+                    best_program = self.database.programs[best_node.id]
+                    parent_dict = {parent_label: best_program}
+                    parent = best_program
+                    # LineageEvolve: the attempt is made at the best node.
+                    self.database.select_for_paradigm(best_node)
+                    # Keep context_programs_dict from sampling for diversity
+
             # LineageEvolve: the parent was chosen by the lineage tree policy.
             db = self.database
             self._last_sampling_mode = getattr(db, "_last_sampling_mode", None) or "lineage"
@@ -606,19 +626,32 @@ class LineageEvolveController(DiscoveryController):
                 if it["strategy"].id not in listed:
                     strategies.append(it["strategy"])
                     listed.add(it["strategy"].id)
+            paradigm_strategy = db.memory.get((paradigm or {}).get("strategy_id"))
+            if paradigm_strategy is not None and paradigm_strategy.id not in listed:
+                strategies.append(paradigm_strategy)
+                listed.add(paradigm_strategy.id)
+            # External strategies the edit may draw on (for attribution).
+            source_strategies = [
+                {"strategy": it["strategy"]} for it in lessons
+            ] + ([{"strategy": paradigm_strategy}] if paradigm_strategy is not None else [])
 
             lineage = {
                 "island": island,
                 "node": node,
                 "selection": selection,
-                "lessons": lessons,
+                "lessons": source_strategies,
                 "context_ids": context_ids,
-                "meta": {"triggered": bool(meta_ids) or forced is not None, "ideas": meta_ids},
+                "meta": {
+                    "triggered": bool(meta_ids) or forced is not None,
+                    "ideas": meta_ids,
+                    "paradigm": (paradigm or {}).get("idea"),
+                    "paradigm_strategy": paradigm_strategy.id if paradigm_strategy else None,
+                },
                 "prompt_sources": {
                     "lessons": [it["strategy"].id for it in lessons],
                     "warnings": [it["strategy"].id for it in warnings],
                     "context_programs": {cid: p.id for cid, p in context_ids.items()},
-                    "meta_idea": forced,
+                    "meta_idea": forced or (paradigm_strategy.id if paradigm_strategy else None),
                 },
                 "retrieved": {
                     "lessons": [
@@ -651,6 +684,9 @@ class LineageEvolveController(DiscoveryController):
                     use_memory=db.use_strategy_memory, has_strategies=bool(strategies)
                 ),
                 "error_context": error_context,
+                # AdaEvolve's paradigm (rendered exactly as in AdaEvolve)
+                "paradigm": paradigm,
+                "paradigm_strategy_id": paradigm_strategy.id if paradigm_strategy else None,
             }
             # Include any extra prompt context
             for k, v in self._prompt_context.items():
@@ -659,6 +695,10 @@ class LineageEvolveController(DiscoveryController):
 
             # Build prompt (LineageEvolveContextBuilder formats the lineage blocks)
             prompt = self.context_builder.build_prompt(parent_dict, context)
+
+            # Mark paradigm as used after prompt is built
+            if paradigm:
+                self.database.use_paradigm()
 
             # Build tracking info for child program
             parent_info = (parent_label, parent.id)
@@ -1013,7 +1053,7 @@ class LineageEvolveController(DiscoveryController):
         labels = validate_labels(
             data.get("units"),
             units,
-            strategy_source_ids=set(lineage["prompt_sources"]["lessons"]),
+            strategy_source_ids={it["strategy"].id for it in lessons},
             declared_sources=set(intent.get("sources") or []),
             context_programs=context_code,
             parent_code=parent.solution,

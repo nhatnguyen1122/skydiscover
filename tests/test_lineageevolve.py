@@ -208,7 +208,7 @@ def test_database_commit_flow_and_checkpoint(tmp_path):
     db.add(prog("init", 1.0, "x = 0"))
     db.add(prog("init2", 1.0, "x = 0"), target_island=1)
     assert db.trees[0].roots == ["init"] and db.trees[1].roots == ["init2"]
-    assert db.use_paradigm_breakthrough is False
+    assert db.use_paradigm_breakthrough is True  # AdaEvolve paradigm kept (default)
 
     parent, ctx = db.sample(3)
     assert list(parent.values())[0].id == "init"
@@ -271,7 +271,8 @@ def test_database_commit_flow_and_checkpoint(tmp_path):
 
 
 def test_meta_trigger_and_switches():
-    db = make_db(stagnation_window=2, use_inherited_prior=False, use_source_attribution=False)
+    db = make_db(stagnation_window=2, use_inherited_prior=False, use_source_attribution=False,
+                 meta_guidance_mode="lineage", stagnation_signal="progress")
     db.add(prog("init", 1.0, "x = 0"))
     assert not db.should_trigger_meta(0)
     for i in range(2):
@@ -439,3 +440,27 @@ def test_theta_floor_limits_individual_penalty():
     t.theta = 0.0002
     assert t.effective_theta() == pytest.approx(0.86 * 2e-3)
     assert t.reward_of(0.85) == pytest.approx(-0.01 / (0.86 * 2e-3))
+
+
+def test_paradigm_mode_matches_adaevolve_and_links_memory():
+    db = make_db()  # default meta_guidance_mode="paradigm"
+    assert db.use_paradigm_breakthrough and db.paradigm_tracker is not None
+    assert not db.use_meta_guidance and not db.should_trigger_meta(0)
+    db.add(prog("init", 1.0, "x = 0"))
+    db.add(prog("init2", 1.0, "x = 0"), target_island=1)
+    db.commit_attempt(parent_id="init2", island=1, iteration=1, status="admitted", intent={},
+                      prompt_sources={}, child_program=prog("best", 3.0, "x = 9", "init2"))
+    assert db.best_program_id == "best"
+    db.set_paradigms([{"idea": "Use LP for radii", "description": "solve an LP", "cautions": "slow"}])
+    paradigm = db.get_current_paradigm()
+    s = db.memory.get(paradigm["strategy_id"])
+    assert s.name == "use_lp_for_radii" and s.origin == "meta_guide" and s.conditions == ["slow"]
+    db.current_island = 0
+    node = db.paradigm_parent_node()
+    assert node.id == "best"
+    sel = db.select_for_paradigm(node)
+    assert db.current_island == 1 and sel["path"] == ["init2", "best"]
+    db.use_paradigm(); db.use_paradigm()  # max_uses (2) per idea, as AdaEvolve
+    assert db.get_current_paradigm() is None
+    lineage_db = make_db(meta_guidance_mode="lineage")
+    assert lineage_db.paradigm_tracker is None and lineage_db.use_meta_guidance

@@ -122,6 +122,9 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         # Where an active paradigm is applied: "global_best" (AdaEvolve) or
         # "tree" (the parent chosen by the tree policy).
         self.paradigm_parent = str(getattr(config, "paradigm_parent", "global_best")).lower()
+        # Migration imports become expandable lineage roots (spec) or are
+        # kept as context-only programs (False).
+        self.import_as_roots = bool(getattr(config, "import_as_roots", True))
         if self.paradigm_parent not in ("global_best", "tree"):
             raise ValueError(f"Unknown paradigm_parent: {self.paradigm_parent}")
         self.eta = float(getattr(config, "eta", 0.25))
@@ -265,7 +268,14 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
                 if self.config.db_path:
                     self._save_program(program)
         elif accepted:
-            self._register_root(program, island_idx, iteration)
+            is_migrant = "migrated_from" in (program.metadata or {})
+            if is_migrant and not self.import_as_roots:
+                # Context-only import: the migrant stays in the island's
+                # archive (so it can be shown as a context program) but does
+                # not become an expandable lineage root.
+                self.hash_index.add(code_hash(program.solution))
+            else:
+                self._register_root(program, island_idx, iteration)
         return result
 
     def _register_root(

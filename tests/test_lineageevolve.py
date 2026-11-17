@@ -480,3 +480,23 @@ def test_exploration_floor_and_paradigm_parent_option():
     with pytest.raises(ValueError):
         LineageEvolveDatabase("lineageevolve_puct",
                               LineageEvolvePUCTDatabaseConfig(num_islands=1, paradigm_parent="x"))
+
+
+def test_context_only_imports():
+    db = make_db(import_as_roots=False)
+    db.add(prog("init", 1.0, "x = 0"))
+    db.add(prog("init2", 1.0, "x = 0"), target_island=1)
+    db.commit_attempt(parent_id="init", island=0, iteration=1, status="admitted", intent={},
+                      prompt_sources={}, child_program=prog("c", 2.0, "x = 1", "init"))
+    migrant = Program(id="m", solution="x = 1", metrics={"combined_score": 2.0}, parent_id="c",
+                      metadata={"migrated_from": 0, "migrated_to": 1})
+    db.add(migrant, target_island=1)
+    assert "m" not in db.trees[1].nodes and "m" not in db.node_island
+    assert any(p.id == "m" for p in db.get_island_population(1))  # still a context program
+    assert db.trees[1].roots == ["init2"]
+    db2 = make_db()  # default: spec behaviour
+    db2.add(prog("init", 1.0, "x = 0"))
+    db2.add(prog("init2", 1.0, "x = 0"), target_island=1)
+    db2.add(Program(id="m", solution="x = 1", metrics={"combined_score": 2.0}, parent_id="init",
+                    metadata={"migrated_from": 0}), target_island=1)
+    assert "m" in db2.trees[1].nodes

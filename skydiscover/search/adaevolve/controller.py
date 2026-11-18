@@ -110,6 +110,9 @@ class AdaEvolveController(DiscoveryController):
         """Load evaluator source code for paradigm generation context."""
         from skydiscover.search.utils.discovery_utils import load_evaluator_code
 
+        # Ablation switch: hide the evaluator source from meta-guidance.
+        if not getattr(self.config.search.database, "meta_guidance_include_evaluator", True):
+            return ""
         return load_evaluator_code(self.evaluation_file)
 
     # =========================================================================

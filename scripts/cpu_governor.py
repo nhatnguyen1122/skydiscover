@@ -13,7 +13,8 @@ import os, re, signal, subprocess, sys, time
 
 MAX_ACTIVE = int(sys.argv[1]) if len(sys.argv) > 1 else 6
 ORPHAN_AGE = int(sys.argv[2]) if len(sys.argv) > 2 else 480
-TMP = re.compile(r"/T/tmp\w+\.py")
+# Orphaned candidate programs: macOS ($TMPDIR/.../T/tmpXXX.py) or Linux (/tmp/tmpXXX.py)
+TMP = re.compile(r"(/T/|(^|\s)/tmp/)tmp\w+\.py")
 
 
 def etime_s(s):

@@ -435,6 +435,9 @@ class AdaEvolveDatabaseConfig(DatabaseConfig):
     # Sibling context
     sibling_context_limit: int = 5
 
+    # Show the evaluator source to the paradigm generator (meta-guidance)
+    meta_guidance_include_evaluator: bool = True
+
     # Error retry
     enable_error_retry: bool = True
     max_error_retries: int = 2

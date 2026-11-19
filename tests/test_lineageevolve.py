@@ -516,3 +516,23 @@ def test_lean_interpreter_prompt_omits_context_code():
     full = interp.build_prompt(units, {"sources": []}, [], ctx, 1.0, 2.0, "improved", {"label": "x"})
     assert "SECRET_MARKER" not in lean and "SECRET_MARKER" in full
     assert "C1 67%" in lean
+
+
+def test_paradigm_prob_option():
+    from skydiscover.config import LineageEvolvePUCTDatabaseConfig
+
+    def mk(p):
+        cfg = LineageEvolvePUCTDatabaseConfig(num_islands=1, population_size=20,
+                                              paradigm_parent="tree", paradigm_prob=p,
+                                              random_seed=3)
+        return LineageEvolveDatabase("lineageevolve_puct", cfg)
+
+    full = mk(1.0)
+    state = full.paradigm_rng.getstate()
+    assert all(full.use_paradigm_this_try() for _ in range(50))
+    assert full.paradigm_rng.getstate() == state  # no draw at 1.0
+    assert not any(mk(0.0).use_paradigm_this_try() for _ in range(50))
+    half = mk(0.2)
+    frac = sum(half.use_paradigm_this_try() for _ in range(5000)) / 5000
+    assert 0.17 < frac < 0.23
+    assert mk(7.0).paradigm_prob == 1.0

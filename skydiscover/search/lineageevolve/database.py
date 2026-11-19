@@ -128,6 +128,9 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         # Edit Interpreter input: "full" (context-program code in the prompt)
         # or "matched" (only the deterministic per-unit copy fractions).
         self.interpreter_context = str(getattr(config, "interpreter_context", "full")).lower()
+        # Probability that a try uses the active paradigm; the other tries are
+        # ordinary tree-policy tries (1.0 = AdaEvolve: every try uses it).
+        self.paradigm_prob = min(max(float(getattr(config, "paradigm_prob", 1.0)), 0.0), 1.0)
         if self.paradigm_parent not in ("global_best", "tree"):
             raise ValueError(f"Unknown paradigm_parent: {self.paradigm_parent}")
         self.eta = float(getattr(config, "eta", 0.25))
@@ -154,6 +157,11 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
         seed = os.environ.get("SKYDISCOVER_SEED")
         self.random_seed = int(seed) if seed not in (None, "") else getattr(config, "random_seed", 42)
         self.rng = random.Random(self.random_seed)
+        # Separate stream for the paradigm coin, so that paradigm_prob=1.0
+        # leaves the tree policy's random stream unchanged.
+        self.paradigm_rng = random.Random(
+            None if self.random_seed is None else int(self.random_seed) + 7919
+        )
 
         # Search state (Section 2)
         self.trees: List[LineageTree] = [self._new_tree(i) for i in range(self.num_islands)]
@@ -512,6 +520,14 @@ class LineageEvolveDatabase(AdaEvolveDatabase):
                 island=None,
             )
             paradigm["strategy_id"] = strategy.id
+
+    def use_paradigm_this_try(self) -> bool:
+        """Coin flip of ``paradigm_prob`` (no random draw when it is 1 or 0)."""
+        if self.paradigm_prob >= 1.0:
+            return True
+        if self.paradigm_prob <= 0.0:
+            return False
+        return self.paradigm_rng.random() < self.paradigm_prob
 
     def paradigm_parent_node(self) -> Optional[LineageNode]:
         """Node of the global best program (AdaEvolve applies a paradigm to it).

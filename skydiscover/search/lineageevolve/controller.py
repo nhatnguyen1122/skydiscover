@@ -572,6 +572,12 @@ class LineageEvolveController(DiscoveryController):
                 if self.database.use_paradigm_breakthrough
                 else None
             )
+            # LineageEvolve: with paradigm_prob < 1 only a fraction of the tries
+            # use the active paradigm; the others are ordinary tries.
+            self._paradigm_skipped = False
+            if paradigm and not self.database.use_paradigm_this_try():
+                paradigm = None
+                self._paradigm_skipped = True
             if paradigm and self.database.paradigm_parent == "global_best":
                 best_node = self.database.paradigm_parent_node()
                 if best_node is not None:
@@ -649,6 +655,7 @@ class LineageEvolveController(DiscoveryController):
                     "triggered": bool(meta_ids) or forced is not None,
                     "ideas": meta_ids,
                     "paradigm": (paradigm or {}).get("idea"),
+                    "paradigm_skipped": self._paradigm_skipped,
                     "paradigm_strategy": paradigm_strategy.id if paradigm_strategy else None,
                 },
                 "prompt_sources": {

@@ -503,6 +503,7 @@ class LineageEvolveDatabaseConfig(AdaEvolveDatabaseConfig):
     c0: float = 1.0  # PUCT exploration strength, decays linearly over the budget
     c_min_frac: float = 0.0  # floor of the decayed exploration strength (fraction of c0)
     paradigm_parent: str = "global_best"  # "global_best" (AdaEvolve) or "tree" (tree policy)
+    paradigm_prob: float = 1.0  # probability that a try uses the active paradigm (1.0 = AdaEvolve)
     import_as_roots: bool = True  # False: migrants are context-only, not expandable roots
     interpreter_context: str = "full"  # "full" or "matched" (no context code in the interpreter prompt)
     eta: float = 0.25  # uniform floor of the PUCT prior policy
